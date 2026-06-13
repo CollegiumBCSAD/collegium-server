@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 import { MatchLoggingService } from './match-logging.service';
 import { MatchLoggingController } from './match-logging.controller';
+import { VcsCalculatorService } from './vcs-calculator.service';
+
 
 @Module({
-  providers: [MatchLoggingService],
   controllers: [MatchLoggingController],
-  exports: [MatchLoggingService],
+  providers: [MatchLoggingService, VcsCalculatorService],
+  exports: [MatchLoggingService, VcsCalculatorService],
 })
 export class MatchLoggingModule {}

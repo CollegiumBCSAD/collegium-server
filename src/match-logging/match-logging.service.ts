@@ -4,12 +4,16 @@ import { GameTitle, MatchMode, DataSource } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
+import { VcsCalculatorService } from './vcs-calculator.service';
 
 @Injectable()
 export class MatchLoggingService {
   private readonly logger = new Logger(MatchLoggingService.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly vcsCalculator: VcsCalculatorService,
+  ) { }
 
   // Load match data from fixure file
   // This is just used for development instead of hitting the real API
@@ -66,6 +70,8 @@ export class MatchLoggingService {
 
     const info = rawData.info;
 
+    const vcsResults = this.vcsCalculator.calculateMatchVcs(info.participants, matchMode);
+
     // check if the match already exists in the database
     const existing = await this.prisma.match.findUnique({
       where: {
@@ -121,6 +127,7 @@ export class MatchLoggingService {
             inhibitorKills: participant.inhibitorKills,
             win: participant.win,
             teamId: participant.teamId,
+            vcsScore: vcsResults.get(participant.puuid)?.finalVcs ?? 0,
             dataSource: DataSource.API,
           },
         });
