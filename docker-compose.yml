@@ -14,5 +14,9 @@ services:
     volumes:
       - collegium-db-data:/var/lib/postgresql/data
 
+# we will add redis here for caching but not now
+
 volumes:
   collegium-db-data:
+
+
