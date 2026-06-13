@@ -1,0 +1,41 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+model University {
+  id         String   @id @default(uuid())
+  name       String
+  domain     String   @unique  // e.g. "umak.edu.ph"
+  created_at DateTime @default(now())
+  users      User[]
+
+  @@map("university")
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  role          Role       @default(ATHLETE)
+  display_name  String
+  university_id String
+  university    University @relation(fields: [university_id], references: [id])
+  created_at    DateTime   @default(now())
+
+  @@map("users")
+}
+
+enum Role {
+  ATHLETE
+  COACH
+  NON_ATHLETE
+  ADMIN
+}
