@@ -11,31 +11,85 @@ datasource db {
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
-model University {
-  id         String   @id @default(uuid())
-  name       String
-  domain     String   @unique  // e.g. "umak.edu.ph"
-  created_at DateTime @default(now())
-  users      User[]
-
-  @@map("university")
-}
-
-model User {
-  id            String     @id @default(uuid())
-  email         String     @unique
-  role          Role       @default(ATHLETE)
-  display_name  String
-  university_id String
-  university    University @relation(fields: [university_id], references: [id])
-  created_at    DateTime   @default(now())
-
-  @@map("users")
-}
-
 enum Role {
   ATHLETE
   COACH
   NON_ATHLETE
   ADMIN
+}
+
+enum GameTitle {
+  LOL
+  VALORANT
+  MLBB
+  CODM
+}
+
+enum MatchMode {
+  TOURNAMENT
+  SCRIM
+}
+
+enum DataSource {
+  API
+  PEER_VERIFIED
+}
+
+model University {
+  id        String   @id @default(uuid())
+  name      String
+  domain    String   @unique
+  createdAt DateTime @default(now())
+  users     User[]
+}
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  password     String
+  role         Role        @default(ATHLETE)
+  displayName  String
+  universityId String
+  university   University  @relation(fields: [universityId], references: [id])
+  playerStats  PlayerStat[]
+  createdAt    DateTime    @default(now())
+}
+
+model Match {
+  id           String      @id @default(uuid())
+  riotMatchId  String?     @unique
+  title        GameTitle
+  matchMode    MatchMode
+  gameDuration Int
+  gameMode     String
+  platformId   String
+  playedAt     DateTime    @default(now())
+  playerStats  PlayerStat[]
+}
+
+model PlayerStat {
+  id                          String     @id @default(uuid())
+  matchId                     String
+  match                       Match      @relation(fields: [matchId], references: [id])
+  userId                      String?
+  user                        User?      @relation(fields: [userId], references: [id])
+  puuid                       String
+  summonerName                String
+  championName                String?
+  kills                       Int
+  deaths                      Int
+  assists                     Int
+  role                        String?
+  lane                        String?
+  totalDamageDealt            Int?
+  totalDamageDealtToChampions Int?
+  visionScore                 Int?
+  objectivesStolen            Int?
+  turretKills                 Int?
+  inhibitorKills              Int?
+  win                         Boolean
+  teamId                      Int?
+  vcsScore                    Float?
+  dataSource                  DataSource @default(API)
+  createdAt                   DateTime   @default(now())
 }
