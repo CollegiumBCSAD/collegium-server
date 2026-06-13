@@ -4,6 +4,7 @@ import { MatchLoggingController } from './match-logging.controller';
 
 @Module({
   providers: [MatchLoggingService],
-  controllers: [MatchLoggingController]
+  controllers: [MatchLoggingController],
+  exports: [MatchLoggingService],
 })
 export class MatchLoggingModule {}
