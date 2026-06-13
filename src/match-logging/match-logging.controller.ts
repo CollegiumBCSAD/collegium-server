@@ -11,7 +11,7 @@ export class MatchLoggingController {
     @Param('matchId') matchId: string,
     @Query('mode') mode: MatchMode = MatchMode.TOURNAMENT,
   ) {
-    await this.matchLoggingService.logMatch(matchId, mode, true);
+    await this.matchLoggingService.logMatch(matchId, mode, true); // true, mock data from fixture file
     return { message: `Match ${matchId} logged successfully in mode ${mode}` };
   }
 
