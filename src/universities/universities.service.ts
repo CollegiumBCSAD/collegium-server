@@ -11,7 +11,7 @@ export class UniversitiesService {
 
     // Check if a university with the same name already exists
     const existingUniversity = await this.prisma.university.findUnique({
-      where: { name },
+      where: { domain }, 
     });
 
     if (existingUniversity) {
