@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import morgan from 'morgan';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -32,10 +33,14 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth()
     .build();
+  
+  const configService = app.get(ConfigService);
+
+  const port = configService.get<number>('PORT') ?? 5000;
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
 
-  await app.listen(process.env.PORT ?? 5000);
+  await app.listen(port);
 }
 bootstrap();
