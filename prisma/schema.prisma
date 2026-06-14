@@ -11,11 +11,19 @@ datasource db {
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
+
 enum Role {
   ATHLETE
   COACH
   NON_ATHLETE
   ADMIN
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  SUSPENDED
 }
 
 enum GameTitle {
@@ -44,15 +52,16 @@ model University {
 }
 
 model User {
-  id           String      @id @default(uuid())
-  email        String      @unique
-  password     String
-  role         Role        @default(ATHLETE)
+  id           String        @id @default(uuid())
+  email        String        @unique
+  password     String?
+  role         Role          @default(ATHLETE)
+  status       AccountStatus @default(PENDING)
   displayName  String
   universityId String
-  university   University  @relation(fields: [universityId], references: [id])
+  university   University    @relation(fields: [universityId], references: [id])
   playerStats  PlayerStat[]
-  createdAt    DateTime    @default(now())
+  createdAt    DateTime      @default(now())
 }
 
 model Match {
