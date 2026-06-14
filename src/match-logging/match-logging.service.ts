@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import { VcsCalculatorService } from './vcs-calculator.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class MatchLoggingService {
@@ -13,6 +14,7 @@ export class MatchLoggingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly vcsCalculator: VcsCalculatorService,
+    private readonly configService: ConfigService,
   ) { }
 
   // Load match data from fixure file
@@ -34,7 +36,7 @@ export class MatchLoggingService {
   // We can use development key for LoL only but for valorant we would need the production key
 
   private async fetchFromRiotApi(matchId: string): Promise<any> {
-    const apiKey = process.env.RIOT_API_KEY;
+    const apiKey = this.configService.get<string>('RIOT_API_KEY');
 
     // currently, it is hardcoded to LoL but we can extend this for valorant
     const url = `https://sea.api.riotgames.com/lol/match/v5/matches/${matchId}`;
