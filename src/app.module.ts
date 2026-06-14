@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { MatchLoggingModule } from './match-logging/match-logging.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -11,7 +12,7 @@ import { MatchLoggingModule } from './match-logging/match-logging.module';
       isGlobal: true,
     }),
     PrismaModule, 
-    MatchLoggingModule],
+    MatchLoggingModule, AuthModule],
   controllers: [AppController],
   providers: [AppService],
 })
