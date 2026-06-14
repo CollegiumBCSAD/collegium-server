@@ -1,6 +1,8 @@
-# Collegium – Backend Server: AI Context Reference
+# Collegium – Backend Server: Development Reference
 
-> **Purpose:** This file is a ground-truth reference for any AI assistant working inside this repository. Read this before touching any file. Do not hallucinate features, tables, or endpoints that are not described here.
+> **Purpose:** Ground-truth reference for development of the Collegium backend server.
+> This file reflects both the thesis specification and actual architectural decisions made during development.
+> When in conflict, **the thesis takes priority**. Deviations are explicitly noted.
 
 ---
 
@@ -8,12 +10,16 @@
 
 Collegium is a university-verified collegiate esports management platform for the **Philippine collegiate circuit**. It is built as a **Progressive Web App (PWA)** and serves four game titles:
 
-| Title | Abbreviation | Genre | Data Source |
-|---|---|---|---|
-| Valorant | VAL | FPS (PC) | Riot Games REST API (automated) |
-| League of Legends | LOL | MOBA (PC) | Riot Games REST API (automated) |
-| Mobile Legends: Bang Bang | MLBB | MOBA (Mobile) | Two-step peer-confirmation (manual) |
-| Call of Duty: Mobile | CODM | FPS (Mobile) | Two-step peer-confirmation (manual) |
+| Title | Abbreviation | Genre | Data Source | Status |
+|---|---|---|---|---|
+| League of Legends | LOL | MOBA (PC) | Riot Games REST API (automated) | ✅ Active — dev key works |
+| Valorant | VALORANT | FPS (PC) | Riot Games REST API (automated) | ⏳ Deferred — requires production key |
+| Mobile Legends: Bang Bang | MLBB | MOBA (Mobile) | Two-step peer-confirmation (manual) | ⏳ Deferred |
+| Call of Duty: Mobile | CODM | FPS (Mobile) | Two-step peer-confirmation (manual) | ⏳ Deferred |
+
+> **Current scope:** LoL only. Valorant, MLBB, and CODM are architecturally supported
+> but deferred until Riot production key is obtained. Do not implement Valorant mock
+> or MLBB/CODM peer-confirmation until core features are complete and Riot application is submitted.
 
 Access is restricted to users with verified **`.edu.ph` institutional email addresses** only.
 
@@ -21,338 +27,428 @@ Access is restricted to users with verified **`.edu.ph` institutional email addr
 
 ## Repository Role
 
-This repo is the **backend server**. It is one of two repos:
-
 | Repo | Role |
 |---|---|
-| `collegium-frontend` | Next.js v14 frontend (separate repo) |
+| `collegium-client` | Next.js v14 frontend (separate repo) |
 | `collegium-server` ← **this repo** | NestJS backend API server |
-
-The frontend communicates with this server via REST API. Real-time features (War Room chat, live bracket updates) are handled via Redis pub/sub, which this server manages.
 
 ---
 
 ## Tech Stack
 
-### Backend Framework
-- **NestJS v10** with **Node.js v20**
-- Modular, domain-driven architecture — each feature domain is its own NestJS module
+Version is subjected to changes.
 
-### Language
-- **TypeScript v5** — strict typing is enforced throughout, especially on Riot Games API response schemas and VCS data structures
+| Layer | Technology | Version |
+|---|---|---|
+| Framework | NestJS | v10 |
+| Runtime | Node.js | v20 |
+| Language | TypeScript | v5 |
+| Database | PostgreSQL | v16 |
+| ORM | Prisma | v5 (with pg adapter) |
+| Cache / Pub-Sub | Redis | v7 |
+| Auth | Auth.js (NextAuth.js) | v5 |
+| HTTP Logging | Morgan | latest |
+| HTTP Client | Axios | latest |
+| Password Hashing | bcrypt | latest |
+| Validation | class-validator + class-transformer | latest |
 
-### Database
-- **PostgreSQL v16** — primary relational database
-- **Prisma ORM v5** — schema migrations, type-safe queries, and database access
 
-### Caching & Real-Time
-- **Redis v7** — pub/sub layer for:
-  - War Room chat
-  - Scrim coordination channel messages
-  - Live tournament bracket updates
-  - Riot Games API response caching
-
-### Authentication
-- **Auth.js (NextAuth.js) v5** — institutional email verification, `.edu.ph` domain enforcement, JWT/session management
-
-### Infrastructure (local dev)
-- **Docker Compose** — runs PostgreSQL and Redis locally (already configured in this repo)
+### Local Dev Infrastructure (Docker Compose)
+- PostgreSQL on port `5432` (container: `collegium-db`)
+- Redis on port `6379`
 
 ### Cloud Deployment Targets
-- Frontend: Vercel (separate repo)
 - PostgreSQL: Railway or Supabase
 - Redis: Upstash
+- Frontend: Vercel (separate repo)
 
 ---
 
 ## NestJS Module Architecture
 
-Each module maps to a core feature domain. Do not merge or rename these without good reason.
-
 ```
 src/
-├── auth/              # Authentication, .edu.ph domain check, JWT, RBAC guards
-├── users/             # User account management (profiles, role assignment)
+├── auth/              # .edu.ph enforcement, JWT, RBAC guards, Google OAuth
 ├── universities/      # University registration, Glicko-2 rating storage
-├── scrims/            # Peer-to-Peer Scrim Board (post, request, approve, chat)
 ├── tournaments/       # Tournament creation, bracket generation, result propagation
-├── war-room/          # Auto-generated private chatrooms per tournament match
-├── match-logging/     # Hybrid match data pipeline (API + peer-verification)
+├── match-logging/     # Hybrid match data pipeline (LoL API for now)
+│   ├── fixtures/      # sample-lol-match.json for dev/testing
+│   ├── interfaces/    # LolParticipant, NormalizedParticipant, VcsResult, MatchParser
+│   └── parsers/       # LolParser, ParserFactory (ValorantParser deferred)
 ├── ranking/           # Glicko-2 VCS engine, Bottom-Up Aggregation, rating periods
-├── portfolios/        # Dual-layer athlete portfolio (Practice + Tournament stats)
-├── community/         # News hub, community posts (Non-Athlete accounts)
-└── prisma/            # PrismaService (singleton database client)
+└── prisma/            # PrismaService singleton (global module)
+```
+
+### Deferred Modules (post Riot production key)
+```
+├── users/             # User profile management
+├── scrims/            # Peer-to-Peer Scrim Board
+├── war-room/          # Auto-generated private chatrooms
+├── portfolios/        # Dual-layer athlete portfolio
+└── community/         # News hub, community posts
 ```
 
 ---
 
 ## Role-Based Access Control (RBAC)
 
-There are exactly **four user roles**. Guards must enforce these at the route level.
+Exactly **four user roles** as specified in the thesis:
 
 | Role | Enum Value | Description |
 |---|---|---|
 | Athlete | `ATHLETE` | Registered varsity player |
-| Coach / Manager | `COACH` | University team manager; can post scrims, submit match data |
-| Non-Athlete | `NON_ATHLETE` | Community/spectator account; read-only access to public data |
+| Coach / Manager | `COACH` | University team manager; posts scrims, submits match data |
+| Non-Athlete | `NON_ATHLETE` | Community/spectator; read-only access to public data |
 | System Administrator | `ADMIN` | Full platform access |
 
-Role is stored on the `users` table as an enum. RBAC is enforced via NestJS guards using decorators.
+### Implementation
+- JWT guard applied **globally** in `main.ts` — all routes protected by default
+- `@Public()` decorator marks routes that skip auth (login, register)
+- `@Roles()` decorator restricts routes to specific role(s)
+- Role embedded in JWT payload, validated on every request via `JwtStrategy`
 
 ---
 
 ## Database Schema (Prisma)
 
-These are the canonical tables. Do not add or rename fields without updating the Prisma schema.
+### Naming Convention
+- Prisma **models**: `PascalCase`
+- Prisma **fields**: `snake_case` — matches thesis data dictionary spec
+- **Deviation from Prisma default camelCase** — intentional
 
-### `users`
-| Field | Type | Notes |
-|---|---|---|
-| `id` | `String` (UUID v4) | Primary key |
-| `email` | `String` | Must be a `.edu.ph` address |
-| `role` | `Enum` | `ATHLETE \| COACH \| NON_ATHLETE \| ADMIN` |
-| `university_id` | `String` (UUID v4) | FK → `university.id` |
-| `display_name` | `String` | Publicly visible name |
-| `created_at` | `DateTime` | ISO 8601 |
+### Current Schema
 
-### `university`
-| Field | Type | Notes |
-|---|---|---|
-| `id` | `String` (UUID v4) | Primary key |
-| `name` | `String` | Full university name |
-| `domain` | `String` | e.g. `umak.edu.ph` |
-| `glicko2_rating` | `Float` | Current Glicko-2 rating (Bottom-Up Aggregated) |
-| `glicko2_rd` | `Float` | Rating Deviation |
-| `glicko2_sigma` | `Float` | Volatility |
-| `created_at` | `DateTime` | ISO 8601 |
+```prisma
+enum Role {
+  ATHLETE
+  COACH
+  NON_ATHLETE
+  ADMIN
+}
 
-### `match`
-| Field | Type | Notes |
-|---|---|---|
-| `id` | `String` (UUID v4) | Primary key |
-| `tournament_id` | `String?` (UUID v4) | FK → tournament; `null` if scrim |
-| `title` | `Enum` | `VALORANT \| LOL \| MLBB \| CODM` |
-| `match_mode` | `Enum` | `TOURNAMENT \| SCRIM` |
-| `winner_university_id` | `String` (UUID v4) | FK → `university.id` |
-| `loser_university_id` | `String` (UUID v4) | FK → `university.id` |
-| `is_verified` | `Boolean` | `true` only after both parties confirm |
-| `played_at` | `DateTime` | ISO 8601 |
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
 
-### `player_stat`
-| Field | Type | Notes |
-|---|---|---|
-| `id` | `String` (UUID v4) | Primary key |
-| `match_id` | `String` (UUID v4) | FK → `match.id` |
-| `user_id` | `String` (UUID v4) | FK → `users.id` |
-| `kills` | `Int?` | Null in Scrim Mode |
-| `deaths` | `Int?` | Null in Scrim Mode |
-| `assists` | `Int?` | Null in Scrim Mode |
-| `objective_score` | `Float?` | Title-specific; null in Scrim Mode |
-| `vcs_score` | `Float` | Computed Varsity Contribution Score |
-| `data_source` | `Enum` | `API \| PEER_VERIFIED` |
+enum GameTitle {
+  VALORANT
+  LOL
+  MLBB
+  CODM
+}
+
+enum MatchMode {
+  TOURNAMENT
+  SCRIM
+}
+
+enum DataSource {
+  API
+  PEER_VERIFIED
+}
+
+model University {
+  id             String   @id @default(uuid())
+  name           String
+  domain         String   @unique
+  glicko2_rating Float    @default(1500)
+  glicko2_rd     Float    @default(350)
+  glicko2_sigma  Float    @default(0.06)
+  created_at     DateTime @default(now())
+
+  users          User[]
+  won_matches    Match[]  @relation("WinnerUniversity")
+  lost_matches   Match[]  @relation("LoserUniversity")
+}
+
+model User {
+  id            String        @id @default(uuid())
+  email         String        @unique
+  password      String?
+  role          Role          @default(ATHLETE)
+  status        AccountStatus @default(ACTIVE)
+  display_name  String
+  university_id String
+  university    University    @relation(fields: [university_id], references: [id])
+  player_stats  PlayerStat[]
+  created_at    DateTime      @default(now())
+}
+
+model Match {
+  id                   String    @id @default(uuid())
+  tournament_id        String?
+  title                GameTitle
+  match_mode           MatchMode
+  winner_university_id String
+  loser_university_id  String
+  is_verified          Boolean   @default(false)
+  played_at            DateTime  @default(now())
+
+  winner_university    University @relation("WinnerUniversity", fields: [winner_university_id], references: [id])
+  loser_university     University @relation("LoserUniversity", fields: [loser_university_id], references: [id])
+  player_stats         PlayerStat[]
+}
+
+model PlayerStat {
+  id              String     @id @default(uuid())
+  match_id        String
+  user_id         String
+  kills           Int?
+  deaths          Int?
+  assists         Int?
+  objective_score Float?
+  vcs_score       Float      @default(0)
+  data_source     DataSource @default(API)
+  created_at      DateTime   @default(now())
+
+  match           Match      @relation(fields: [match_id], references: [id])
+  user            User       @relation(fields: [user_id], references: [id])
+}
+```
+
+### Glicko-2 Starting Values (standard Glickman 1995 spec)
+- `glicko2_rating = 1500`
+- `glicko2_rd = 350`
+- `glicko2_sigma = 0.06`
 
 ---
 
-## Core Business Logic
+## Authentication Design
+
+### Registration Flow
+```
+User submits email + password + displayName + role
+        ↓
+Email checked for .edu.ph suffix → rejected if not
+        ↓
+Domain extracted → University table queried
+→ Rejected if domain not registered
+        ↓
+Duplicate email check
+        ↓
+Password hashed (bcrypt, 10 salt rounds)
+        ↓
+User created with status = ACTIVE
+        ↓
+JWT issued immediately
+```
+
+### Google OAuth Flow
+```
+User clicks Google login
+        ↓
+Google returns profile + email
+        ↓
+Same .edu.ph + domain checks apply
+        ↓
+Auto-register if new (no password stored)
+        ↓
+JWT issued
+```
+
+### JWT Payload
+```typescript
+{
+  sub: string;        // user ID
+  email: string;
+  role: Role;
+  universityId: string;
+}
+```
+
+### AccountStatus
+- `ACTIVE` — default after .edu.ph check passes
+- `SUSPENDED` — admin suspended; JWT immediately invalidated
+- `PENDING` / `REJECTED` — reserved for future university onboarding
+
+---
+
+## Match Logging Architecture
+
+### Current State (LoL only)
+```
+MatchLoggingService
+        ↓
+ParserFactory.getParser(GameTitle.LOL)
+        ↓
+LolParser — normalizes Riot API response to NormalizedParticipant[]
+        ↓
+VcsCalculatorService.calculateMatchVcs()
+        ↓
+PlayerStat records written via Prisma $transaction
+```
 
 ### Match Modes
 
 **Scrim Mode** (`match_mode = SCRIM`)
-- Only `win/loss` outcome and match completion status are recorded
-- KDA and individual stats are **intentionally excluded** — do not add them here
-- Contributes to Practice VCS only
+- Records win/loss + match completion only
+- `kills`, `deaths`, `assists`, `objective_score` stored as `null`
+- **Never populate KDA in Scrim Mode** — thesis requirement
 
 **Tournament Mode** (`match_mode = TOURNAMENT`)
-- Full individual stats are captured per player
-- For `VALORANT` and `LOL`: stats are pulled automatically from the Riot Games API
-- For `MLBB` and `CODM`: stats are submitted via the peer-confirmation protocol
-- Contributes to Tournament VCS (weighted by Tournament Multiplier)
+- Full individual stats per player
+- LOL: automated via Riot Games API
+- Contributes to Tournament VCS (TM ≥ 1.5x)
 
----
+### objective_score for LoL
+```
+objective_score = (visionScore / teamTotalVision)
+                + objectivesStolen
+                + turretKills
+                + inhibitorKills
+```
 
-### Varsity Contribution Score (VCS)
-
-The VCS is the composite performance metric per player per match. It has two modes:
-
-#### Practice VCS
-- Inputs: scrim completion rate, opponent diversity, win/loss consistency
-- No KDA data — excluded by design
-- Used for the "Practice Reliability" dimension of the athlete portfolio
-
-#### Tournament VCS
-- Inputs: kills, deaths, assists, objective_score (role-specific), win/loss
-- Weighted by **Tournament Multiplier (TM ≥ 1.5x)**
-- Genre-specific role weights apply (FPS weights differ from MOBA weights)
-- Used for the "Peak Performance" dimension of the athlete portfolio
-
----
-
-### Glicko-2 Dynamic Ranking Algorithm
-
-Each player (and by aggregation, each university) has three Glicko-2 parameters:
-
-| Parameter | Symbol | Meaning |
+### Riot API Access
+| Title | Dev Key | Notes |
 |---|---|---|
-| Rating | `r` | Estimated skill level |
-| Rating Deviation | `RD` | Uncertainty in the rating |
-| Volatility | `σ` | Expected fluctuation in performance over time |
-
-**Key behaviors:**
-- `RD` decreases as a player accumulates verified match history
-- `RD` increases during inactivity (e.g., semester breaks) — this is intentional
-- `σ` distinguishes genuinely inconsistent performers from seasonally inactive players
-- Rating updates happen in **batch at the end of each rating period** (one academic semester), not after each individual match
-
-**Do not implement continuous per-match Glicko-2 updates.** The batch-period model is a core architectural decision.
+| League of Legends | ✅ Works | Region: sea.api.riotgames.com |
+| Valorant | ❌ Blocked | Requires production key — deferred |
 
 ---
 
-### Bottom-Up Aggregation Model
+## VCS Formula
 
-University-wide Glicko-2 ratings are **not** computed from team match outcomes directly. Instead:
-
-1. Individual player VCS scores are computed per rating period
-2. VCS scores are aggregated across all registered players per university per title
-3. Genre-specific weights are applied (FPS vs MOBA)
-4. The aggregated value feeds into the Glicko-2 parameter update for the university
-5. University `glicko2_rating`, `glicko2_rd`, and `glicko2_sigma` are updated in the `university` table
-
-This means a university's ranking is a **direct function of its registered athletes' verified on-platform performance**, not external records.
-
----
-
-## Riot Games API Integration
-
-- Used for `VALORANT` and `LOL` in `TOURNAMENT` mode only
-- Trigger: when a tournament match is confirmed by the tournament organizer
-- Flow:
-  1. Platform receives match confirmation with a Riot match ID
-  2. Backend dispatches authenticated request to Riot Games REST API
-  3. Response (JSON payload) is parsed for: KDA ratios, objective participation, role-specific metrics
-  4. Data is normalized to the `player_stat` schema
-  5. Records are queued for the next rating period batch
-- API responses should be **cached in Redis** to avoid redundant calls
-- API keys must be stored as environment variables — never hardcoded
-
----
-
-## Two-Step Peer-Confirmation Protocol (Mobile Titles)
-
-Used for `MLBB` and `CODM` — these titles have no public API.
-
-1. **Step 1 – Submission:** Winning team's `COACH` uploads a timestamped scoreboard screenshot and submits match stats
-2. **Step 2 – Verification:** Opposing team's `COACH` independently views the submission and confirms or disputes the result
-3. Data is only written to `player_stat` and `match` (with `is_verified = true`) after **both** parties have acted
-4. Disputed matches must surface to `ADMIN` for resolution
-
----
-
-## Scrim Board Pipeline
-
+### Tournament VCS (LoL)
 ```
-POST /scrims          → Coach posts availability slot
-GET  /scrims          → List available slots (filterable by title, rank band)
-POST /scrims/:id/request  → Opposing coach submits a scrim request
-POST /scrims/:id/approve  → Home coach approves the request
-  └─ Side effect: private scrim chat channel created in Redis
-POST /scrims/:id/result   → Either coach submits win/loss outcome
-POST /scrims/:id/confirm  → Opposing coach confirms result
-  └─ Side effect: Scrim Mode match record written to DB (no KDA)
+KDA Score       = (kills + assists) / max(deaths, 1)
+Damage Score    = playerDamage / teamTotalDamage
+Vision Score    = playerVision / teamTotalVision
+Objective Score = turretKills + inhibitorKills + objectivesStolen
+
+Raw Score  = KDA + Damage + Vision + Objective
+Final VCS  = Raw Score × TM (1.5 for tournament, 1.0 for scrim)
+```
+
+### Practice VCS
+- Inputs: scrim completion rate, opponent diversity, win/loss consistency
+- No KDA — excluded by design
+- Computed at end of rating period in batch, not per match
+
+---
+
+## Glicko-2 Ranking Engine
+
+### Rules
+1. **Batch updates only** — end of each rating period (one academic semester)
+2. **Never update per-match** — core architectural decision from thesis
+3. `RD` increases during inactivity — intentional
+4. `σ` distinguishes inconsistent vs seasonally inactive players
+
+### Bottom-Up Aggregation
+```
+Individual VCS scores (per rating period)
+        ↓
+Aggregated per university per title
+        ↓
+Genre weights applied (FPS vs MOBA)
+        ↓
+Glicko-2 university-level parameter update
+        ↓
+University glicko2_rating, glicko2_rd, glicko2_sigma updated
 ```
 
 ---
 
-## Tournament Module Pipeline
+## API Routes
 
+### Auth
 ```
-POST /tournaments              → Admin/Coach creates tournament
-POST /tournaments/:id/register → University registers team
-POST /tournaments/:id/bracket  → Generate bracket (single-elim or round-robin)
-GET  /tournaments/:id/bracket  → View current bracket state
-POST /tournaments/:id/matches/:matchId/confirm → Confirm match result
-  └─ Side effects:
-       - War Room chatroom instantiated (Redis)
-       - For VAL/LOL: Riot API fetch triggered
-       - For MLBB/CODM: peer-confirmation request created
-POST /tournaments/:id/matches/:matchId/close   → Close match, propagate to ranking engine
+POST   /auth/register              — Register (.edu.ph only)
+POST   /auth/login                 — Login, returns JWT
+GET    /auth/google                — Google OAuth redirect
+GET    /auth/google/callback       — Google OAuth callback
+PATCH  /auth/users/:id/status      — Admin: suspend/activate user
+```
+
+### Match Logging
+```
+POST   /match-logging/log/:title/:matchId?mode=TOURNAMENT  — Log a match
+GET    /match-logging/stats/:matchId                       — Get match stats
+```
+
+### Universities
+```
+POST   /universities               — Admin: register university
+GET    /universities               — List all + leaderboard standings
+GET    /universities/:id           — University profile + Glicko-2 stats
+```
+
+### Tournaments
+```
+POST   /tournaments                          — Admin/Coach: create tournament
+POST   /tournaments/:id/register             — University registers team
+POST   /tournaments/:id/bracket              — Generate bracket
+GET    /tournaments/:id/bracket              — View bracket
+POST   /tournaments/:id/matches/:mid/confirm — Confirm match → Riot API triggered
+POST   /tournaments/:id/matches/:mid/close   — Close match → ranking engine
+```
+
+### Ranking
+```
+POST   /ranking/compute            — Admin: trigger Glicko-2 batch computation
+GET    /ranking/leaderboard        — University standings
+GET    /ranking/players/:id        — Player Glicko-2 + VCS history
 ```
 
 ---
 
-## War Room
-
-- A **private, temporary, role-restricted** chatroom
-- Created automatically when a tournament match is confirmed
-- Access: Tournament Organizer + the two University Coaches of matched teams only
-- Backed by Redis pub/sub channels
-- Automatically deactivated and archived when the match closes and results propagate
-- Do not expose War Room channels to Athlete or Non-Athlete roles
-
----
-
-## Environment Variables Required
+## Environment Variables
 
 ```env
-# Database
-DATABASE_URL=postgresql://...
-
-# Redis
-REDIS_URL=redis://...
-
-# Riot Games API
-RIOT_API_KEY=...
-
-# Auth
-NEXTAUTH_SECRET=...
-AUTH_URL=...
-
-# App
-NODE_ENV=development | production
+DATABASE_URL=postgresql://collegium_user:collegium_password@localhost:5432/collegium_dev
+REDIS_URL=redis://localhost:6379
+RIOT_API_KEY=RGAPI-...
+JWT_SECRET=your_secret_here
+JWT_EXPIRES_IN=7d
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_CALLBACK_URL=http://localhost:5000/auth/google/callback
+PORT=5000
+NODE_ENV=development
 ```
-
-Never commit real values. Use `.env.example` as the template.
-
----
-
-## Docker Compose (Local Dev)
-
-The `docker-compose.yml` in this repo spins up:
-- **PostgreSQL v16** on port `5432`
-- **Redis v7** on port `6379`
-
-Run with:
-```bash
-docker compose up -d
-```
-
-Then run Prisma migrations:
-```bash
-npx prisma migrate dev
-```
-
----
-
-## What This Server Does NOT Do
-
-- It does not serve the frontend — that is the separate Next.js repo
-- It does not manage `.edu.ph` email sending directly — Auth.js handles verification tokens
-- It does not store raw screenshot files — only the confirmation status and extracted stat data
-- It does not compute Glicko-2 after every single match — updates are batched per rating period (one semester)
-- It does not expose scrim or tournament stats from non-verified matches (`is_verified = false` records are excluded from all ranking computations)
 
 ---
 
 ## Naming Conventions
 
-| Thing | Convention |
-|---|---|
-| NestJS modules | `camelCase` folder names matching the domain |
-| Prisma models | `PascalCase` |
-| Prisma fields | `snake_case` |
-| API routes | `kebab-case` REST paths |
-| TypeScript types/interfaces | `PascalCase` |
-| Enums | `SCREAMING_SNAKE_CASE` |
-| Environment variables | `SCREAMING_SNAKE_CASE` |
+| Thing | Convention | Example |
+|---|---|---|
+| NestJS module folders | `kebab-case` | `match-logging/` |
+| Prisma models | `PascalCase` | `University`, `PlayerStat` |
+| Prisma fields | `snake_case` | `university_id`, `created_at` |
+| TypeScript interfaces | `PascalCase` | `NormalizedParticipant` |
+| Enums | `SCREAMING_SNAKE_CASE` | `PEER_VERIFIED` |
+| API routes | `kebab-case` | `/match-logging/log` |
+| Environment variables | `SCREAMING_SNAKE_CASE` | `RIOT_API_KEY` |
+| Service methods | `camelCase` | `logMatch()` |
 
 ---
 
+## What This Server Does NOT Do
+
+- Does not serve the frontend
+- Does not compute Glicko-2 per-match — batch per semester only
+- Does not store raw screenshot files
+- Does not expose stats from unverified matches (`is_verified = false` excluded from ranking)
+- Does not populate KDA in Scrim Mode — ever
+
+---
+
+## Build Progress
+
+| Module | Status | Notes |
+|---|---|---|
+| `prisma/` | ✅ Done | PrismaService, pg adapter, global module |
+| `auth/` | ✅ Done | .edu.ph, JWT, Google OAuth, RBAC |
+| `match-logging/` | ✅ Done | LoL pipeline, VCS calculator, parser factory |
+| `universities/` | ⬜ Next | Admin registration + leaderboard |
+| `tournaments/` | ⬜ Next | Bracket engine + match confirmation + Riot API trigger |
+| `ranking/` | ⬜ Next | Glicko-2 batch engine + Bottom-Up Aggregation |
+| `users/` | ⏳ Deferred | After Riot key |
+| `scrims/` | ⏳ Deferred | After Riot key |
+| `war-room/` | ⏳ Deferred | After Riot key |
+| `portfolios/` | ⏳ Deferred | After Riot key |
+| `community/` | ⏳ Deferred | After Riot key |
