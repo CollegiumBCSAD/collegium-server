@@ -12,6 +12,7 @@ datasource db {
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 
+
 enum Role {
   ATHLETE
   COACH
@@ -36,6 +37,12 @@ enum GameTitle {
 enum MatchMode {
   TOURNAMENT
   SCRIM
+}
+
+enum TournamentStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
 }
 
 enum DataSource {
@@ -80,6 +87,21 @@ model Match {
   platformId   String
   playedAt     DateTime    @default(now())
   playerStats  PlayerStat[]
+
+
+  tournamentId String?
+  tournament Tournament? @relation(fields: [tournamentId], references: [id])
+}
+
+model Tournament {
+  id      String       @id @default(uuid())
+  name    String
+  status  TournamentStatus @default(UPCOMING)
+  createdAt DateTime  @default(now())
+
+
+  matches Match[]
+
 }
 
 model PlayerStat {
