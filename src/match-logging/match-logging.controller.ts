@@ -4,6 +4,7 @@ import { MatchLoggingService } from './match-logging.service';
 import { MatchMode } from '@prisma/client';
 
 @ApiTags('Match Logging')
+@ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('match-logging')
 export class MatchLoggingController {
   constructor(private readonly matchLoggingService: MatchLoggingService) { }

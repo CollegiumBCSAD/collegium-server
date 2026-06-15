@@ -58,6 +58,7 @@ export class AuthController {
   }
 
   @Patch('users/:id/status')
+  @ApiBearerAuth() // This endpoint requires authentication
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update user account status (Admin only)' })

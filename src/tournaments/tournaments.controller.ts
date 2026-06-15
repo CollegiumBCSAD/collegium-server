@@ -7,13 +7,14 @@ import {
   Request,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { TournamentsService } from './tournaments.service';
 
 @ApiTags('Tournaments')
+@ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('tournaments')
 export class TournamentsController {
   constructor(private readonly tournamentsService: TournamentsService) {}

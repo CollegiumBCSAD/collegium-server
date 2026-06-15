@@ -1,11 +1,12 @@
 import { Controller, Post, Body, Get, Param } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UniversitiesService } from './universities.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Universities')
+@ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('universities')
 export class UniversitiesController {
   constructor(private readonly universitiesService: UniversitiesService) {}
