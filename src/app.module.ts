@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { MatchLoggingModule } from './match-logging/match-logging.module';
 import { AuthModule } from './auth/auth.module';
 import { UniversitiesModule } from './universities/universities.module';
+import { TournamentsModule } from './tournaments/tournaments.module';
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { UniversitiesModule } from './universities/universities.module';
       isGlobal: true,
     }),
     PrismaModule, 
-    MatchLoggingModule, AuthModule, UniversitiesModule],
+    MatchLoggingModule, AuthModule, UniversitiesModule, TournamentsModule],
   controllers: [AppController],
   providers: [AppService],
 })
