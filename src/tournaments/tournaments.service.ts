@@ -16,9 +16,7 @@ export class TournamentsService {
     private matchLoggingService: MatchLoggingService,
   ) {}
 
-  // ─────────────────────────────────────────
   // CREATE — Create a new tournament
-  // ─────────────────────────────────────────
   async create(createTournamentDto: CreateTournamentDto) {
     return this.prisma.tournament.create({
       data: {
@@ -27,9 +25,7 @@ export class TournamentsService {
     });
   }
 
-  // ─────────────────────────────────────────
   // REGISTER — Register a university for a tournament
-  // ─────────────────────────────────────────
   async registerUniversity(tournamentId: string, universityId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -58,9 +54,7 @@ export class TournamentsService {
     });
   }
 
-  // ─────────────────────────────────────────
   // GENERATE BRACKET — Pair registered universities into matches
-  // ─────────────────────────────────────────
   async generateBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -141,9 +135,7 @@ export class TournamentsService {
     });
   }
 
-  // ─────────────────────────────────────────
   // GET BRACKET — Fetch tournament with all matches
-  // ─────────────────────────────────────────
   async getBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -164,9 +156,7 @@ export class TournamentsService {
     return tournament;
   }
 
-  // ─────────────────────────────────────────
   // CONFIRM MATCH — Coach submits the Riot matchId, triggers LoL pipeline
-  // ─────────────────────────────────────────
   async confirmMatch(
     tournamentId: string,
     matchId: string,
@@ -184,29 +174,24 @@ export class TournamentsService {
       throw new BadRequestException('This match has already been confirmed');
     }
 
-    // Trigger the existing match-logging pipeline with the Riot match ID
-    // useMock=false means it will hit the real Riot API
+    // Trigger the existing match-logging pipeline, passing the bracket's matchId
     await this.matchLoggingService.logMatch(
       dto.riotMatchId,
       MatchMode.TOURNAMENT,
-      false,
+      true, // CHANGED TO TRUE FOR MVP TESTING
+      matchId, // Pass the existing database Match ID so it updates instead of creating!
     );
 
-    // Link the riotMatchId to this tournament match record
-    return this.prisma.match.update({
+    // Return the updated match with its new player stats
+    return this.prisma.match.findUnique({
       where: { id: matchId },
-      data: {
-        riotMatchId: dto.riotMatchId,
-      },
       include: {
         playerStats: true,
       },
     });
   }
 
-  // ─────────────────────────────────────────
   // CLOSE MATCH — Admin marks match as verified; ready for ranking
-  // ─────────────────────────────────────────
   async closeMatch(tournamentId: string, matchId: string) {
     const match = await this.prisma.match.findFirst({
       where: { id: matchId, tournamentId },

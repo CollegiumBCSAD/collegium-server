@@ -59,6 +59,7 @@ export class MatchLoggingService {
     matchId: string,
     matchMode: MatchMode,
     useMock: boolean = true,
+    existingMatchId?: string,
   ): Promise<void> {
     this.logger.log(
       `Logging match ${matchId} with mode ${matchMode} (useMock=${useMock})`,
@@ -90,17 +91,31 @@ export class MatchLoggingService {
 
     // if not, we create a new match record in the database
     await this.prisma.$transaction(async (tx) => {
-      // parent match record first
-      const match = await tx.match.create({
-        data: {
-          riotMatchId: matchId,
-          title: GameTitle.LOL,
-          matchMode,
-          gameDuration: info.gameDuration,
-          gameMode: info.gameMode,
-          platformId: info.platformId,
-        },
-      });
+      let match;
+      if (existingMatchId) {
+        // Update the existing bracket match with Riot API data
+        match = await tx.match.update({
+          where: { id: existingMatchId },
+          data: {
+            riotMatchId: matchId,
+            gameDuration: info.gameDuration,
+            gameMode: info.gameMode,
+            platformId: info.platformId,
+          },
+        });
+      } else {
+        // Create a standalone match (e.g. for scrims)
+        match = await tx.match.create({
+          data: {
+            riotMatchId: matchId,
+            title: GameTitle.LOL,
+            matchMode,
+            gameDuration: info.gameDuration,
+            gameMode: info.gameMode,
+            platformId: info.platformId,
+          },
+        });
+      }
 
       this.logger.log(
         `Created match record with ID ${match.id} for riotMatchId ${matchId}`,
