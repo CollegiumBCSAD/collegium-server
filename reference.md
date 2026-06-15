@@ -150,6 +150,12 @@ enum DataSource {
   PEER_VERIFIED
 }
 
+enum TournamentStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+}
+
 model University {
   id             String   @id @default(uuid())
   name           String
@@ -162,6 +168,7 @@ model University {
   users          User[]
   won_matches    Match[]  @relation("WinnerUniversity")
   lost_matches   Match[]  @relation("LoserUniversity")
+  tournaments    Tournament[]
 }
 
 model User {
@@ -177,9 +184,20 @@ model User {
   created_at    DateTime      @default(now())
 }
 
+model Tournament {
+  id             String           @id @default(uuid())
+  name           String
+  status         TournamentStatus @default(UPCOMING)
+  created_at     DateTime         @default(now())
+
+  universities   University[]
+  matches        Match[]
+}
+
 model Match {
   id                   String    @id @default(uuid())
   tournament_id        String?
+  tournament           Tournament? @relation(fields: [tournament_id], references: [id])
   title                GameTitle
   match_mode           MatchMode
   winner_university_id String
