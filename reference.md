@@ -352,6 +352,23 @@ University glicko2_rating, glicko2_rd, glicko2_sigma updated
 
 ---
 
+## University Onboarding Workflow
+
+### Current State (MVP Phase)
+Universities do **not** apply through a portal. It is a strictly **Admin-led onboarding**:
+1. System Administrator gathers the list of official collegiate esports programs.
+2. System Administrator manually registers the university and its `.edu.ph` domain via the `POST /universities` endpoint.
+3. Once registered, athletes from that specific `.edu.ph` domain are allowed to sign up. If the university is not registered, athlete registration is blocked.
+
+### Future State (Deferred)
+A university application portal where:
+1. University representatives submit their domain to a public "Apply" page.
+2. The university is recorded with an `AccountStatus` of `PENDING` (or `REJECTED` if denied).
+3. The System Administrator reviews and approves the application, changing the status to `ACTIVE`.
+4. Athlete registration unlocks for that domain.
+
+---
+
 ## API Routes
 
 ### Auth
