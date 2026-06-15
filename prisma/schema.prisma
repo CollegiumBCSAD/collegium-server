@@ -63,7 +63,9 @@ model University {
   created_at DateTime @default(now())
   users     User[]
 
-  tournaments Tournament[]
+  tournaments  Tournament[]
+  wonMatches   Match[]      @relation("MatchWinner")
+  lostMatches  Match[]      @relation("MatchLoser")
 }
 
 model User {
@@ -87,12 +89,18 @@ model Match {
   gameDuration Int
   gameMode     String
   platformId   String
+  isVerified   Boolean     @default(false)
   playedAt     DateTime    @default(now())
   playerStats  PlayerStat[]
 
+  // Winner and Loser universities — set when match is confirmed
+  winnerId     String?
+  winner       University? @relation("MatchWinner", fields: [winnerId], references: [id])
+  loserId      String?
+  loser        University? @relation("MatchLoser", fields: [loserId], references: [id])
 
   tournamentId String?
-  tournament Tournament? @relation(fields: [tournamentId], references: [id])
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id])
 }
 
 model Tournament {
