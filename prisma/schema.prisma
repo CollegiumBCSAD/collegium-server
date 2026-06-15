@@ -62,6 +62,8 @@ model University {
 
   created_at DateTime @default(now())
   users     User[]
+
+  tournaments Tournament[]
 }
 
 model User {
@@ -101,6 +103,8 @@ model Tournament {
 
 
   matches Match[]
+
+  universities University[]
 
 }
 
