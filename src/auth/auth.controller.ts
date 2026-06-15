@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -20,50 +21,46 @@ import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { AccountStatus, Role } from '@prisma/client';
 
+@ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  // POST /auth/register
-  // @Public() means no JWT required — same as [AllowAnonymous]
   @Public()
   @Post('register')
+  @ApiOperation({ summary: 'Register a new account (must be .edu.ph)' })
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
 
-  // POST /auth/login
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')
+  @ApiOperation({ summary: 'Login with email and password' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
 
-  // GET /auth/google
-  // Redirects user to Google OAuth consent screen
   @Public()
   @Get('google')
   @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Redirects to Google OAuth consent screen' })
   googleAuth() {
     // Guard handles the redirect — nothing needed here
   }
 
-  // GET /auth/google/callback
-  // Google redirects here after user approves
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Callback URL for Google OAuth' })
   googleCallback(@Req() req: any) {
-    // req.user is set by GoogleStrategy.validate()
     return this.authService.googleLogin(req.user);
   }
 
-  // PATCH /auth/users/:id/status
-  // Admin only — approve or reject pending accounts
   @Patch('users/:id/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Update user account status (Admin only)' })
   updateStatus(
     @Param('id') id: string,
     @Body('status') status: AccountStatus,
