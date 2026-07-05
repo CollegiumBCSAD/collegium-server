@@ -13,13 +13,11 @@ Collegium is a university-verified collegiate esports management platform for th
 | Title | Abbreviation | Genre | Data Source | Status |
 |---|---|---|---|---|
 | League of Legends | LOL | MOBA (PC) | Riot Games REST API (automated) | ✅ Active — dev key works |
-| Valorant | VALORANT | FPS (PC) | Riot Games REST API (automated) | ⏳ Deferred — requires production key |
+| Valorant | VALORANT | FPS (PC) | Riot Games REST API (automated) | ✅ Active — mock data ready, production key pending |
 | Mobile Legends: Bang Bang | MLBB | MOBA (Mobile) | Two-step peer-confirmation (manual) | ⏳ Deferred |
 | Call of Duty: Mobile | CODM | FPS (Mobile) | Two-step peer-confirmation (manual) | ⏳ Deferred |
 
-> **Current scope:** LoL only. Valorant, MLBB, and CODM are architecturally supported
-> but deferred until Riot production key is obtained. Do not implement Valorant mock
-> or MLBB/CODM peer-confirmation until core features are complete and Riot application is submitted.
+> **Current scope:** LoL & Valorant active (Valorant uses mock data as default). MLBB and CODM are deferred.
 
 Access is restricted to users with verified **`.edu.ph` institutional email addresses** only.
 
@@ -71,10 +69,10 @@ src/
 ├── auth/              # .edu.ph enforcement, JWT, RBAC guards, Google OAuth
 ├── universities/      # University registration, Glicko-2 rating storage
 ├── tournaments/       # Tournament creation, bracket generation, result propagation
-├── match-logging/     # Hybrid match data pipeline (LoL API for now)
-│   ├── fixtures/      # sample-lol-match.json for dev/testing
-│   ├── interfaces/    # LolParticipant, NormalizedParticipant, VcsResult, MatchParser
-│   └── parsers/       # LolParser, ParserFactory (ValorantParser deferred)
+├── match-logging/     # Hybrid match data pipeline (LoL & Valorant)
+│   ├── fixtures/      # sample-lol-match.json, sample-valorant-match.json for dev/testing
+│   ├── interfaces/    # LolParticipant, ValorantParticipant, NormalizedParticipant, VcsResult, MatchParser
+│   └── parsers/       # LolParser, ValorantParser, ParserFactory
 ├── ranking/           # Glicko-2 VCS engine, Bottom-Up Aggregation, rating periods
 └── prisma/            # PrismaService singleton (global module)
 ```
@@ -286,17 +284,17 @@ JWT issued
 
 ## Match Logging Architecture
 
-### Current State (LoL only)
+### Current State (LoL & Valorant)
 ```
 MatchLoggingService
         ↓
-ParserFactory.getParser(GameTitle.LOL)
+ParserFactory.getParser(GameTitle)
         ↓
-LolParser — normalizes Riot API response to NormalizedParticipant[]
+LolParser / ValorantParser — normalizes Riot response to NormalizedParticipant[]
         ↓
-VcsCalculatorService.calculateMatchVcs()
+VcsCalculatorService.calculateMatchVcs() / calculateValorantMatchVcs()
         ↓
-PlayerStat records written via Prisma $transaction
+PlayerStat (and ValorantPlayerStat) records written via Prisma $transaction
 ```
 
 ### Match Modes
@@ -323,7 +321,7 @@ objective_score = (visionScore / teamTotalVision)
 | Title | Dev Key | Notes |
 |---|---|---|
 | League of Legends | ✅ Works | Region: sea.api.riotgames.com |
-| Valorant | ❌ Blocked | Requires production key — deferred |
+| Valorant | ⚠️ Mock only | Region: ap.api.riotgames.com (Production key pending) |
 
 ---
 
@@ -337,6 +335,17 @@ Vision Score    = playerVision / teamTotalVision
 Objective Score = turretKills + inhibitorKills + objectivesStolen
 
 Raw Score  = KDA + Damage + Vision + Objective
+Final VCS  = Raw Score × TM (1.5 for tournament, 1.0 for scrim)
+```
+
+### Tournament VCS (Valorant)
+```
+KDA Score       = (kills + assists) / max(deaths, 1)
+Combat Share    = combatScore / teamAvgCombatScore       // ACS share within team (mapped to damageScore field)
+Headshot Bonus  = headshotPct                            // 0.0 – 1.0 (mapped to visionScore field)
+Objective Score = plants + defuses + firstBloods
+
+Raw Score  = KDA + Combat Share + Headshot Bonus + Objective Score
 Final VCS  = Raw Score × TM (1.5 for tournament, 1.0 for scrim)
 ```
 
@@ -400,8 +409,8 @@ PATCH  /auth/users/:id/status      — Admin: suspend/activate user
 
 ### Match Logging
 ```
-POST   /match-logging/log/:title/:matchId?mode=TOURNAMENT  — Log a match
-GET    /match-logging/stats/:matchId                       — Get match stats
+POST   /match-logging/log/:title/:matchId?mode=TOURNAMENT&useMock=true  — Log a match
+GET    /match-logging/stats/:matchId                                   — Get match stats (includes valorantStat if Valorant)
 ```
 
 ### Universities
@@ -478,7 +487,7 @@ NODE_ENV=development
 |---|---|---|
 | `prisma/` | ✅ Done | PrismaService, pg adapter, global module |
 | `auth/` | ✅ Done | .edu.ph, JWT, Google OAuth, RBAC |
-| `match-logging/` | ✅ Done | LoL pipeline, VCS calculator, parser factory |
+| `match-logging/` | ✅ Done | LoL & Valorant pipelines, VCS calculator, parser factory |
 | `universities/` | ⬜ Next | Admin registration + leaderboard |
 | `tournaments/` | ⬜ Next | Bracket engine + match confirmation + Riot API trigger |
 | `ranking/` | ⬜ Next | Glicko-2 batch engine + Bottom-Up Aggregation |
