@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource, MatchMode } from '@prisma/client';
+import { DataSource, MatchMode, GameTitle } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MatchLoggingService } from './match-logging.service';
 import { VcsCalculatorService } from './vcs-calculator.service';
@@ -53,7 +53,7 @@ describe('MatchLoggingService', () => {
       mockVcsCalculatorService.calculateMatchVcs.mockReturnValue(new Map());
       mockPrismaService.match.findUnique.mockResolvedValue({ id: 'existing' });
 
-      await service.logMatch('riot-123', MatchMode.TOURNAMENT, true);
+      await service.logMatch(GameTitle.LOL, 'riot-123', MatchMode.TOURNAMENT, true);
 
       expect(mockPrismaService.match.findUnique).toHaveBeenCalledWith({ where: { riotMatchId: 'riot-123' } });
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
@@ -76,7 +76,7 @@ describe('MatchLoggingService', () => {
         return true;
       });
 
-      await service.logMatch('riot-123', MatchMode.TOURNAMENT, true);
+      await service.logMatch(GameTitle.LOL, 'riot-123', MatchMode.TOURNAMENT, true);
 
       expect(mockPrismaService.$transaction).toHaveBeenCalled();
     });
@@ -91,7 +91,13 @@ describe('MatchLoggingService', () => {
 
       expect(mockPrismaService.match.findUnique).toHaveBeenCalledWith({
         where: { riotMatchId: 'riot-123' },
-        include: { playerStats: true },
+        include: {
+          playerStats: {
+            include: {
+              valorantStat: true,
+            },
+          },
+        },
       });
       expect(result).toEqual(mockStats);
     });

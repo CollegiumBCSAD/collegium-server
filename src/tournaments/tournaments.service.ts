@@ -176,6 +176,7 @@ export class TournamentsService {
 
     // Trigger the existing match-logging pipeline, passing the bracket's matchId
     await this.matchLoggingService.logMatch(
+      match.title,
       dto.riotMatchId,
       MatchMode.TOURNAMENT,
       true, // CHANGED TO TRUE FOR MVP TESTING

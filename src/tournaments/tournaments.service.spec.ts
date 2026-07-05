@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MatchMode, TournamentStatus } from '@prisma/client';
+import { MatchMode, TournamentStatus, GameTitle } from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TournamentsService } from './tournaments.service';
@@ -184,7 +184,7 @@ describe('TournamentsService', () => {
     const dto = { riotMatchId: 'SEA_12345' };
 
     it('should confirm a match and trigger the Riot pipeline', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: false, riotMatchId: null };
+      const mockMatch = { id: matchId, tournamentId, isVerified: false, riotMatchId: null, title: GameTitle.LOL };
       const mockUpdated = { ...mockMatch, riotMatchId: dto.riotMatchId };
 
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
@@ -195,6 +195,7 @@ describe('TournamentsService', () => {
       const result = await service.confirmMatch(tournamentId, matchId, dto);
 
       expect(mockMatchLoggingService.logMatch).toHaveBeenCalledWith(
+        GameTitle.LOL,
         dto.riotMatchId,
         MatchMode.TOURNAMENT,
         true,

@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MatchLoggingService } from './match-logging.service';
-import { MatchMode } from '@prisma/client';
+import { MatchMode, GameTitle } from '@prisma/client';
 
 @ApiTags('Match Logging')
 @ApiBearerAuth() // This indicates that the endpoints require authentication
@@ -15,7 +15,7 @@ export class MatchLoggingController {
     @Param('matchId') matchId: string,
     @Query('mode') mode: MatchMode = MatchMode.TOURNAMENT,
   ) {
-    await this.matchLoggingService.logMatch(matchId, mode, true); // true, mock data from fixture file
+    await this.matchLoggingService.logMatch(GameTitle.LOL, matchId, mode, true); // true, mock data from fixture file
     return { message: `Match ${matchId} logged successfully in mode ${mode}` };
   }
 
