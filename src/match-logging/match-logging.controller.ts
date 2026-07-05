@@ -9,14 +9,17 @@ import { MatchMode, GameTitle } from '@prisma/client';
 export class MatchLoggingController {
   constructor(private readonly matchLoggingService: MatchLoggingService) { }
 
-  @Post('log/:matchId')
+  @Post('log/:title/:matchId')
   @ApiOperation({ summary: 'Log a match and fetch data from Riot API' })
   async logMatch(
+    @Param('title') title: GameTitle,
     @Param('matchId') matchId: string,
     @Query('mode') mode: MatchMode = MatchMode.TOURNAMENT,
+    @Query('useMock') useMock: string = 'true',
   ) {
-    await this.matchLoggingService.logMatch(GameTitle.LOL, matchId, mode, true); // true, mock data from fixture file
-    return { message: `Match ${matchId} logged successfully in mode ${mode}` };
+    const isMock = useMock === 'true';
+    await this.matchLoggingService.logMatch(title, matchId, mode, isMock);
+    return { message: `${title} match ${matchId} logged successfully in mode ${mode} (mock=${isMock})` };
   }
 
   @Get('stats/:matchId')
