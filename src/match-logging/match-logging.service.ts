@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GameTitle, MatchMode, DataSource } from '@prisma/client';
 import { ParserFactory } from './parsers/parser.factory';
@@ -8,6 +8,8 @@ import * as path from 'path';
 import axios from 'axios';
 import { VcsCalculatorService } from './vcs-calculator.service';
 import { ConfigService } from '@nestjs/config';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class MatchLoggingService {
@@ -17,6 +19,7 @@ export class MatchLoggingService {
     private readonly prisma: PrismaService,
     private readonly vcsCalculator: VcsCalculatorService,
     private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) { }
 
   // Load match data from fixture file for LoL
@@ -41,8 +44,14 @@ export class MatchLoggingService {
     return JSON.parse(raw);
   }
 
-  // This will be the real method to fetch match data from the Riot API for LoL
   private async fetchFromRiotApi(matchId: string): Promise<any> {
+    const cacheKey = `match:lol:${matchId}`;
+    const cachedData = await this.cacheManager.get(cacheKey);
+    if (cachedData) {
+      this.logger.log(`Cache HIT for LoL match ${matchId}`);
+      return cachedData;
+    }
+
     const apiKey = this.configService.get<string>('RIOT_API_KEY');
     const url = `https://sea.api.riotgames.com/lol/match/v5/matches/${matchId}`;
 
@@ -52,11 +61,20 @@ export class MatchLoggingService {
       },
     });
 
+    await this.cacheManager.set(cacheKey, response.data, 86400000);
+    this.logger.log(`Cache MISS for LoL match ${matchId}. Saved to Redis.`);
+
     return response.data;
   }
 
-  // Fetch Valorant match data from Riot API (mock fallback for now)
   private async fetchValorantFromRiotApi(matchId: string): Promise<any> {
+    const cacheKey = `match:val:${matchId}`;
+    const cachedData = await this.cacheManager.get(cacheKey);
+    if (cachedData) {
+      this.logger.log(`Cache HIT for Valorant match ${matchId}`);
+      return cachedData;
+    }
+
     const apiKey = this.configService.get<string>('RIOT_API_KEY');
     const url = `https://ap.api.riotgames.com/val/match/v1/matches/${matchId}`;
 
@@ -65,6 +83,9 @@ export class MatchLoggingService {
         'X-Riot-Token': apiKey,
       },
     });
+
+    await this.cacheManager.set(cacheKey, response.data, 86400000);
+    this.logger.log(`Cache MISS for Valorant match ${matchId}. Saved to Redis.`);
 
     return response.data;
   }

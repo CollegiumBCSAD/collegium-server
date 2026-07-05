@@ -4,6 +4,7 @@ import { DataSource, MatchMode, GameTitle } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MatchLoggingService } from './match-logging.service';
 import { VcsCalculatorService } from './vcs-calculator.service';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 
 const mockPrismaService = {
   match: {
@@ -20,6 +21,11 @@ const mockConfigService = {
   get: jest.fn(),
 };
 
+const mockCacheManager = {
+  get: jest.fn(),
+  set: jest.fn(),
+};
+
 describe('MatchLoggingService', () => {
   let service: MatchLoggingService;
 
@@ -30,6 +36,7 @@ describe('MatchLoggingService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: VcsCalculatorService, useValue: mockVcsCalculatorService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: CACHE_MANAGER, useValue: mockCacheManager },
       ],
     }).compile();
 
