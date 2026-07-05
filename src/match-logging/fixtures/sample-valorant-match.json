@@ -1,0 +1,230 @@
+{
+  "matchInfo": {
+    "matchId": "val-match-uuid-12345",
+    "gameLengthMillis": 2400000,
+    "gameMode": "/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+    "provisioningFlowId": "ap"
+  },
+  "players": [
+    {
+      "puuid": "val-player-1",
+      "gameName": "ViperMain",
+      "tagLine": "PH1",
+      "teamId": "Red",
+      "characterId": "Viper",
+      "stats": {
+        "score": 6200,
+        "kills": 20,
+        "deaths": 12,
+        "assists": 5,
+        "damageDealt": 4200,
+        "headshots": 15,
+        "bodyshots": 30,
+        "legshots": 5
+      }
+    },
+    {
+      "puuid": "val-player-2",
+      "gameName": "JettDash",
+      "tagLine": "PH2",
+      "teamId": "Red",
+      "characterId": "Jett",
+      "stats": {
+        "score": 7500,
+        "kills": 25,
+        "deaths": 10,
+        "assists": 2,
+        "damageDealt": 5100,
+        "headshots": 20,
+        "bodyshots": 35,
+        "legshots": 2
+      }
+    },
+    {
+      "puuid": "val-player-3",
+      "gameName": "OmenTP",
+      "tagLine": "PH3",
+      "teamId": "Red",
+      "characterId": "Omen",
+      "stats": {
+        "score": 4500,
+        "kills": 12,
+        "deaths": 14,
+        "assists": 8,
+        "damageDealt": 3100,
+        "headshots": 8,
+        "bodyshots": 25,
+        "legshots": 2
+      }
+    },
+    {
+      "puuid": "val-player-4",
+      "gameName": "SovaArrow",
+      "tagLine": "PH4",
+      "teamId": "Red",
+      "characterId": "Sova",
+      "stats": {
+        "score": 3800,
+        "kills": 10,
+        "deaths": 11,
+        "assists": 11,
+        "damageDealt": 2800,
+        "headshots": 10,
+        "bodyshots": 20,
+        "legshots": 4
+      }
+    },
+    {
+      "puuid": "val-player-5",
+      "gameName": "KilljoyBot",
+      "tagLine": "PH5",
+      "teamId": "Red",
+      "characterId": "Killjoy",
+      "stats": {
+        "score": 4100,
+        "kills": 11,
+        "deaths": 13,
+        "assists": 6,
+        "damageDealt": 2900,
+        "headshots": 12,
+        "bodyshots": 22,
+        "legshots": 1
+      }
+    },
+    {
+      "puuid": "val-player-6",
+      "gameName": "SageHeal",
+      "tagLine": "PH6",
+      "teamId": "Blue",
+      "characterId": "Sage",
+      "stats": {
+        "score": 3900,
+        "kills": 9,
+        "deaths": 15,
+        "assists": 13,
+        "damageDealt": 2400,
+        "headshots": 6,
+        "bodyshots": 26,
+        "legshots": 3
+      }
+    },
+    {
+      "puuid": "val-player-7",
+      "gameName": "ReynaSmurf",
+      "tagLine": "PH7",
+      "teamId": "Blue",
+      "characterId": "Reyna",
+      "stats": {
+        "score": 7100,
+        "kills": 24,
+        "deaths": 14,
+        "assists": 3,
+        "damageDealt": 4800,
+        "headshots": 18,
+        "bodyshots": 32,
+        "legshots": 1
+      }
+    },
+    {
+      "puuid": "val-player-8",
+      "gameName": "CypherCam",
+      "tagLine": "PH8",
+      "teamId": "Blue",
+      "characterId": "Cypher",
+      "stats": {
+        "score": 3200,
+        "kills": 8,
+        "deaths": 16,
+        "assists": 5,
+        "damageDealt": 2100,
+        "headshots": 9,
+        "bodyshots": 18,
+        "legshots": 0
+      }
+    },
+    {
+      "puuid": "val-player-9",
+      "gameName": "PhoenixFlash",
+      "tagLine": "PH9",
+      "teamId": "Blue",
+      "characterId": "Phoenix",
+      "stats": {
+        "score": 5300,
+        "kills": 16,
+        "deaths": 17,
+        "assists": 4,
+        "damageDealt": 3700,
+        "headshots": 11,
+        "bodyshots": 29,
+        "legshots": 3
+      }
+    },
+    {
+      "puuid": "val-player-10",
+      "gameName": "BrimSmoke",
+      "tagLine": "PH10",
+      "teamId": "Blue",
+      "characterId": "Brimstone",
+      "stats": {
+        "score": 3000,
+        "kills": 7,
+        "deaths": 16,
+        "assists": 7,
+        "damageDealt": 1900,
+        "headshots": 5,
+        "bodyshots": 21,
+        "legshots": 2
+      }
+    }
+  ],
+  "teams": [
+    {
+      "teamId": "Red",
+      "won": true,
+      "roundsWon": 13,
+      "roundsPlayed": 22
+    },
+    {
+      "teamId": "Blue",
+      "won": false,
+      "roundsWon": 9,
+      "roundsPlayed": 22
+    }
+  ],
+  "roundResults": [
+    {
+      "roundNum": 0,
+      "bombPlanter": "val-player-1",
+      "bombDefuser": null,
+      "playerStats": [
+        {
+          "puuid": "val-player-1",
+          "kills": [
+            {
+              "timeSinceRoundStartMillis": 15000,
+              "victim": "val-player-7",
+              "killer": "val-player-1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "roundNum": 1,
+      "bombPlanter": "val-player-6",
+      "bombDefuser": "val-player-3",
+      "playerStats": [
+        {
+          "puuid": "val-player-6",
+          "kills": [
+            {
+              "timeSinceRoundStartMillis": 35000,
+              "victim": "val-player-2",
+              "killer": "val-player-6"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
