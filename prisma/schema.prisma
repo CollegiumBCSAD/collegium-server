@@ -141,4 +141,21 @@ model PlayerStat {
   vcsScore                    Float?
   dataSource                  DataSource @default(API)
   createdAt                   DateTime   @default(now())
+  valorantStat                ValorantPlayerStat?
+}
+
+model ValorantPlayerStat {
+  id           String     @id @default(uuid())
+  playerStatId String     @unique
+  playerStat   PlayerStat @relation(fields: [playerStatId], references: [id])
+
+  agentName    String?
+  combatScore  Int?       // ACS equivalent
+  headshotPct  Float?     // headshot percentage
+  plants       Int?       // spike plants
+  defuses      Int?       // spike defuses
+  firstBloods  Int?       // first bloods in the match
+  damageDealt  Int?
+
+  createdAt    DateTime   @default(now())
 }

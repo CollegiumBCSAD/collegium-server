@@ -18,6 +18,7 @@ const mockPrismaService = {
   match: {
     create: jest.fn(),
     findFirst: jest.fn(),
+    findUnique: jest.fn(),
     update: jest.fn(),
   },
   $transaction: jest.fn(),
@@ -189,13 +190,15 @@ describe('TournamentsService', () => {
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
       mockMatchLoggingService.logMatch.mockResolvedValue(undefined);
       mockPrismaService.match.update.mockResolvedValue(mockUpdated);
+      mockPrismaService.match.findUnique.mockResolvedValue(mockUpdated);
 
       const result = await service.confirmMatch(tournamentId, matchId, dto);
 
       expect(mockMatchLoggingService.logMatch).toHaveBeenCalledWith(
         dto.riotMatchId,
         MatchMode.TOURNAMENT,
-        false,
+        true,
+        matchId,
       );
       expect(result.riotMatchId).toEqual(dto.riotMatchId);
     });
