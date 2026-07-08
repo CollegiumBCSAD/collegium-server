@@ -69,16 +69,26 @@ model University {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
-  password     String?
-  role         Role          @default(ATHLETE)
-  status       AccountStatus @default(PENDING)
-  displayName  String
-  universityId String
-  university   University    @relation(fields: [universityId], references: [id])
-  playerStats  PlayerStat[]
-  createdAt    DateTime      @default(now())
+  id             String         @id @default(uuid())
+  email          String         @unique
+  password       String?
+  role           Role           @default(ATHLETE)
+  status         AccountStatus  @default(PENDING)
+  displayName    String
+  universityId   String
+  university     University     @relation(fields: [universityId], references: [id])
+  playerStats    PlayerStat[]
+  refreshTokens  RefreshToken[]
+  createdAt      DateTime       @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
 
 model Match {
