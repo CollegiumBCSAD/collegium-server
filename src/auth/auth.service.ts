@@ -12,6 +12,7 @@ import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { AccountStatus, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -70,7 +71,7 @@ export class AuthService {
       },
     });
 
-    return this.signToken(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(user.id, user.email, user.role, user.universityId);
   }
 
   // LOGIN — email + password
@@ -113,7 +114,7 @@ export class AuthService {
     }
 
     // Step 4 — Issue JWT
-    return this.signToken(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(user.id, user.email, user.role, user.universityId);
   }
 
   // GOOGLE LOGIN — OAuth flow
@@ -173,7 +174,44 @@ export class AuthService {
     }
 
     // Step 6 — Issue JWT
-    return this.signToken(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(user.id, user.email, user.role, user.universityId);
+  }
+
+  async refreshTokens(incomingToken: string) {
+    const tokenHash = this.hashToken(incomingToken);
+
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!stored) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (stored.expiresAt < new Date()) {
+      await this.prisma.refreshToken.delete({ where: { tokenHash } });
+      throw new UnauthorizedException('Refresh token has expired. Please log in again.');
+    }
+
+    if (stored.user.status !== AccountStatus.ACTIVE) {
+      throw new ForbiddenException('Account is not active.');
+    }
+
+    await this.prisma.refreshToken.delete({ where: { tokenHash } });
+
+    return this.generateTokens(
+      stored.user.id,
+      stored.user.email,
+      stored.user.role,
+      stored.user.universityId,
+    );
+  }
+
+  async logout(incomingToken: string) {
+    const tokenHash = this.hashToken(incomingToken);
+
+    await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
   }
 
   // ─────────────────────────────────────────
@@ -201,10 +239,11 @@ export class AuthService {
     });
   }
 
-  // ─────────────────────────────────────────
-  // HELPER — Generate JWT token
-  // ─────────────────────────────────────────
-  private signToken(
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  async generateTokens(
     userId: string,
     email: string,
     role: any,
@@ -217,8 +256,25 @@ export class AuthService {
       universityId,
     };
 
+    const access_token = this.jwtService.sign(payload);
+
+    const rawRefreshToken = crypto.randomBytes(40).toString('hex');
+    const tokenHash = this.hashToken(rawRefreshToken);
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        tokenHash,
+        userId,
+        expiresAt,
+      },
+    });
+
     return {
-      access_token: this.jwtService.sign(payload),
+      access_token,
+      refresh_token: rawRefreshToken,
     };
   }
 }

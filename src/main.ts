@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import morgan from 'morgan';
 import { ConfigService } from '@nestjs/config';
+import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -26,6 +27,7 @@ async function bootstrap() {
   );
 
   app.use(morgan('dev'));
+  app.use(cookieParser());
 
   const config = new DocumentBuilder()
     .setTitle('API Documentation')

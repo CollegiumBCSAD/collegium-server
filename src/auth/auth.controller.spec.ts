@@ -15,6 +15,8 @@ describe('AuthController', () => {
             register: jest.fn(),
             login: jest.fn(),
             googleLogin: jest.fn(),
+            refreshTokens: jest.fn(),
+            logout: jest.fn(),
             updateUserStatus: jest.fn(),
           },
         },
