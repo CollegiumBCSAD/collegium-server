@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiCookieAuth } from '@nestjs/swagger';
 import * as express from 'express';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -37,7 +38,10 @@ const COOKIE_OPTIONS = {
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Public()
   @Post('register')
@@ -81,13 +85,15 @@ export class AuthController {
     @Res({ passthrough: true }) res: express.Response,
   ) {
     const result = await this.authService.googleLogin(req.user as any);
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     if ('message' in result) {
-      return result;
+      res.redirect(`${frontendUrl}/auth/pending?message=${encodeURIComponent(result.message)}`);
+      return;
     }
 
     res.cookie(REFRESH_TOKEN_COOKIE, result.refresh_token, COOKIE_OPTIONS);
-    return { access_token: result.access_token };
+    res.redirect(`${frontendUrl}/auth/callback?token=${result.access_token}`);
   }
 
   @Public()
