@@ -14,7 +14,6 @@ export class VcsCalculatorService {
     participants: NormalizedParticipant[],
     matchMode: MatchMode,
   ): Map<string, VcsResult> {
-
     const teamTotals = this.computeTeamTotals(participants);
 
     const multiplier =
@@ -28,7 +27,9 @@ export class VcsCalculatorService {
       const totals = teamTotals.get(participant.teamId);
 
       if (!totals) {
-        this.logger.warn(`No team totals found for teamId ${participant.teamId}`);
+        this.logger.warn(
+          `No team totals found for teamId ${participant.teamId}`,
+        );
         continue;
       }
 
@@ -46,12 +47,15 @@ export class VcsCalculatorService {
   private computeTeamTotals(
     participants: NormalizedParticipant[],
   ): Map<number, { totalDamage: number; totalVision: number }> {
-
-    const totals = new Map<number, { totalDamage: number; totalVision: number }>();
+    const totals = new Map<
+      number,
+      { totalDamage: number; totalVision: number }
+    >();
 
     for (const p of participants) {
       const extras = p.extras ?? {};
-      const totalDamageDealtToChampions = (extras.totalDamageDealtToChampions as number) ?? 0;
+      const totalDamageDealtToChampions =
+        (extras.totalDamageDealtToChampions as number) ?? 0;
       const visionScore = (extras.visionScore as number) ?? 0;
 
       const existing = totals.get(p.teamId) ?? {
@@ -74,7 +78,8 @@ export class VcsCalculatorService {
     multiplier: number,
   ): VcsResult {
     const extras = participant.extras ?? {};
-    const totalDamageDealtToChampions = (extras.totalDamageDealtToChampions as number) ?? 0;
+    const totalDamageDealtToChampions =
+      (extras.totalDamageDealtToChampions as number) ?? 0;
     const visionScore = (extras.visionScore as number) ?? 0;
     const turretKills = (extras.turretKills as number) ?? 0;
     const inhibitorKills = (extras.inhibitorKills as number) ?? 0;
@@ -90,14 +95,9 @@ export class VcsCalculatorService {
         : 0;
 
     const visionScoreNormalized =
-      teamTotals.totalVision > 0
-        ? visionScore / teamTotals.totalVision
-        : 0;
+      teamTotals.totalVision > 0 ? visionScore / teamTotals.totalVision : 0;
 
-    const objectiveScore =
-      turretKills +
-      inhibitorKills +
-      objectivesStolen;
+    const objectiveScore = turretKills + inhibitorKills + objectivesStolen;
 
     const rawScore =
       kdaScore + damageScore + visionScoreNormalized + objectiveScore;
@@ -133,11 +133,17 @@ export class VcsCalculatorService {
       const totals = teamTotals.get(participant.teamId);
 
       if (!totals) {
-        this.logger.warn(`No team totals found for teamId ${participant.teamId}`);
+        this.logger.warn(
+          `No team totals found for teamId ${participant.teamId}`,
+        );
         continue;
       }
 
-      const vcs = this.calculateValorantPlayerVcs(participant, totals, multiplier);
+      const vcs = this.calculateValorantPlayerVcs(
+        participant,
+        totals,
+        multiplier,
+      );
       results.set(participant.puuid, vcs);
 
       this.logger.log(
@@ -151,7 +157,10 @@ export class VcsCalculatorService {
   private computeValorantTeamTotals(
     participants: NormalizedParticipant[],
   ): Map<number, { totalCombatScore: number; count: number }> {
-    const totals = new Map<number, { totalCombatScore: number; count: number }>();
+    const totals = new Map<
+      number,
+      { totalCombatScore: number; count: number }
+    >();
 
     for (const p of participants) {
       const extras = p.extras ?? {};
@@ -187,14 +196,16 @@ export class VcsCalculatorService {
       (participant.kills + participant.assists) /
       Math.max(participant.deaths, 1);
 
-    const teamAvgScore = teamTotals.count > 0 ? teamTotals.totalCombatScore / teamTotals.count : 0;
+    const teamAvgScore =
+      teamTotals.count > 0 ? teamTotals.totalCombatScore / teamTotals.count : 0;
     const combatScoreShare = teamAvgScore > 0 ? combatScore / teamAvgScore : 0;
 
     const headshotBonus = headshotPct;
 
     const objectiveScore = plants + defuses + firstBloods;
 
-    const rawScore = kdaScore + combatScoreShare + headshotBonus + objectiveScore;
+    const rawScore =
+      kdaScore + combatScoreShare + headshotBonus + objectiveScore;
 
     const finalVcs = rawScore * multiplier;
 

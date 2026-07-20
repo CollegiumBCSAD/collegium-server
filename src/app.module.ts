@@ -19,14 +19,16 @@ import KeyvRedis from '@keyv/redis';
       isGlobal: true,
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        stores: [
-          new KeyvRedis(configService.get<string>('REDIS_URL')),
-        ],
+        stores: [new KeyvRedis(configService.get<string>('REDIS_URL'))],
       }),
       inject: [ConfigService],
     }),
-    PrismaModule, 
-    MatchLoggingModule, AuthModule, UniversitiesModule, TournamentsModule],
+    PrismaModule,
+    MatchLoggingModule,
+    AuthModule,
+    UniversitiesModule,
+    TournamentsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  Post,
-  Request,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Request } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ApiOperation, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -31,9 +24,12 @@ export class TournamentsController {
   @Post(':id/register')
   @Roles(Role.COACH)
   @ApiOperation({ summary: 'Register your university for a tournament' })
-  register(@Param('id') tournamentId: string, @Request() req) {
+  register(@Param('id') tournamentId: string, @Request() req: { user: { universityId: string } }) {
     const universityId = req.user.universityId;
-    return this.tournamentsService.registerUniversity(tournamentId, universityId);
+    return this.tournamentsService.registerUniversity(
+      tournamentId,
+      universityId,
+    );
   }
 
   // POST /tournaments/:id/bracket — Admin or Coach generates the bracket
@@ -54,23 +50,26 @@ export class TournamentsController {
   // POST /tournaments/:id/matches/:mid/confirm — Coach submits the Riot match ID
   @Post(':id/matches/:mid/confirm')
   @Roles(Role.COACH)
-  @ApiOperation({ summary: 'Confirm a match result by submitting the Riot match ID' })
+  @ApiOperation({
+    summary: 'Confirm a match result by submitting the Riot match ID',
+  })
   confirmMatch(
     @Param('id') tournamentId: string,
     @Param('mid') matchId: string,
     @Body() confirmMatchDto: ConfirmMatchDto,
   ) {
-    return this.tournamentsService.confirmMatch(tournamentId, matchId, confirmMatchDto);
+    return this.tournamentsService.confirmMatch(
+      tournamentId,
+      matchId,
+      confirmMatchDto,
+    );
   }
 
   // POST /tournaments/:id/matches/:mid/close — Admin closes and verifies the match
   @Post(':id/matches/:mid/close')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Close and verify a match (Admin only)' })
-  closeMatch(
-    @Param('id') tournamentId: string,
-    @Param('mid') matchId: string,
-  ) {
+  closeMatch(@Param('id') tournamentId: string, @Param('mid') matchId: string) {
     return this.tournamentsService.closeMatch(tournamentId, matchId);
   }
 }

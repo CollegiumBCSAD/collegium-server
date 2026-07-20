@@ -13,11 +13,11 @@ import { AuthService } from './auth.service';
 
 jest.mock('bcrypt');
 jest.mock('crypto', () => ({
-  ...jest.requireActual('crypto'),
+  ...jest.requireActual<typeof import('crypto')>('crypto'),
   randomBytes: jest.fn(() => Buffer.from('a'.repeat(40))),
   createHash: jest.fn(() => ({
     update: jest.fn().mockReturnThis(),
-    digest: jest.fn(() => 'mocked_token_hash'),
+    digest: jest.fn((): string => 'mocked_token_hash'),
   })),
 }));
 
@@ -63,7 +63,12 @@ describe('AuthService', () => {
   });
 
   describe('register()', () => {
-    const dto = { email: 'student@admu.edu.ph', password: 'password', displayName: 'Student', role: Role.ATHLETE };
+    const dto = {
+      email: 'student@admu.edu.ph',
+      password: 'password',
+      displayName: 'Student',
+      role: Role.ATHLETE,
+    };
     const mockUniversity = { id: 'uni-1', domain: 'admu.edu.ph' };
 
     it('should register a new user and return access_token', async () => {
@@ -71,7 +76,12 @@ describe('AuthService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
 
-      const mockCreatedUser = { id: 'user-1', email: dto.email, role: dto.role, universityId: mockUniversity.id };
+      const mockCreatedUser = {
+        id: 'user-1',
+        email: dto.email,
+        role: dto.role,
+        universityId: mockUniversity.id,
+      };
       mockPrismaService.user.create.mockResolvedValue(mockCreatedUser);
       mockJwtService.sign.mockReturnValue('mocked_access_token');
       mockPrismaService.refreshToken.create.mockResolvedValue({});
@@ -85,7 +95,9 @@ describe('AuthService', () => {
 
     it('should throw ForbiddenException if email is not .edu.ph', async () => {
       const invalidDto = { ...dto, email: 'student@gmail.com' };
-      await expect(service.register(invalidDto)).rejects.toThrow(ForbiddenException);
+      await expect(service.register(invalidDto)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should throw BadRequestException if university domain is not registered', async () => {
@@ -135,7 +147,10 @@ describe('AuthService', () => {
     });
 
     it('should throw ForbiddenException if account is PENDING', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue({ password: 'hash', status: AccountStatus.PENDING });
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        password: 'hash',
+        status: AccountStatus.PENDING,
+      });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       await expect(service.login(dto)).rejects.toThrow(ForbiddenException);
     });
@@ -154,7 +169,9 @@ describe('AuthService', () => {
           status: AccountStatus.ACTIVE,
         },
       };
-      mockPrismaService.refreshToken.findUnique.mockResolvedValue(mockStoredToken);
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue(
+        mockStoredToken,
+      );
       mockPrismaService.refreshToken.delete.mockResolvedValue({});
       mockPrismaService.refreshToken.create.mockResolvedValue({});
       mockJwtService.sign.mockReturnValue('new_access_token');
@@ -169,7 +186,9 @@ describe('AuthService', () => {
 
     it('should throw UnauthorizedException if token not found', async () => {
       mockPrismaService.refreshToken.findUnique.mockResolvedValue(null);
-      await expect(service.refreshTokens('invalid_token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.refreshTokens('invalid_token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('should throw UnauthorizedException and delete token if it has expired', async () => {
@@ -180,7 +199,9 @@ describe('AuthService', () => {
       };
       mockPrismaService.refreshToken.findUnique.mockResolvedValue(expiredToken);
       mockPrismaService.refreshToken.delete.mockResolvedValue({});
-      await expect(service.refreshTokens('expired_token')).rejects.toThrow(UnauthorizedException);
+      await expect(service.refreshTokens('expired_token')).rejects.toThrow(
+        UnauthorizedException,
+      );
       expect(mockPrismaService.refreshToken.delete).toHaveBeenCalledTimes(1);
     });
   });
@@ -189,22 +210,32 @@ describe('AuthService', () => {
     it('should delete the refresh token record', async () => {
       mockPrismaService.refreshToken.deleteMany.mockResolvedValue({ count: 1 });
       await service.logout('some_raw_token');
-      expect(mockPrismaService.refreshToken.deleteMany).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.refreshToken.deleteMany).toHaveBeenCalledTimes(
+        1,
+      );
     });
   });
 
   describe('updateUserStatus()', () => {
     it('should update user status', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-1' });
-      mockPrismaService.user.update.mockResolvedValue({ id: 'user-1', status: AccountStatus.ACTIVE });
+      mockPrismaService.user.update.mockResolvedValue({
+        id: 'user-1',
+        status: AccountStatus.ACTIVE,
+      });
 
-      const result = await service.updateUserStatus('user-1', AccountStatus.ACTIVE);
+      const result = await service.updateUserStatus(
+        'user-1',
+        AccountStatus.ACTIVE,
+      );
       expect(result.status).toEqual(AccountStatus.ACTIVE);
     });
 
     it('should throw BadRequestException if user not found', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
-      await expect(service.updateUserStatus('invalid', AccountStatus.ACTIVE)).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateUserStatus('invalid', AccountStatus.ACTIVE),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

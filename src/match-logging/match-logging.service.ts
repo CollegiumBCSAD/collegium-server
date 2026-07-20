@@ -2,7 +2,6 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GameTitle, MatchMode, DataSource } from '@prisma/client';
 import { ParserFactory } from './parsers/parser.factory';
-import { NormalizedParticipant } from './interfaces/normalized-participant.interface';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
@@ -20,7 +19,7 @@ export class MatchLoggingService {
     private readonly vcsCalculator: VcsCalculatorService,
     private readonly configService: ConfigService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
-  ) { }
+  ) {}
 
   // Load match data from fixture file for LoL
   private loadFixture(): any {
@@ -85,7 +84,9 @@ export class MatchLoggingService {
     });
 
     await this.cacheManager.set(cacheKey, response.data, 86400000);
-    this.logger.log(`Cache MISS for Valorant match ${matchId}. Saved to Redis.`);
+    this.logger.log(
+      `Cache MISS for Valorant match ${matchId}. Saved to Redis.`,
+    );
 
     return response.data;
   }
@@ -104,17 +105,28 @@ export class MatchLoggingService {
 
     // Get the raw match data either from the fixture file or from the Riot API
     const rawData = useMock
-      ? (title === GameTitle.VALORANT ? this.loadValorantFixture() : this.loadFixture())
-      : (title === GameTitle.VALORANT ? await this.fetchValorantFromRiotApi(matchId) : await this.fetchFromRiotApi(matchId));
+      ? title === GameTitle.VALORANT
+        ? this.loadValorantFixture()
+        : this.loadFixture()
+      : title === GameTitle.VALORANT
+        ? await this.fetchValorantFromRiotApi(matchId)
+        : await this.fetchFromRiotApi(matchId);
 
     // Parse the raw data using the corresponding parser
     const parser = ParserFactory.getParser(title);
     const parsedMatch = parser.parse(rawData);
 
     // Calculate VCS scores
-    const vcsResults = title === GameTitle.VALORANT
-      ? this.vcsCalculator.calculateValorantMatchVcs(parsedMatch.participants, matchMode)
-      : this.vcsCalculator.calculateMatchVcs(parsedMatch.participants, matchMode);
+    const vcsResults =
+      title === GameTitle.VALORANT
+        ? this.vcsCalculator.calculateValorantMatchVcs(
+            parsedMatch.participants,
+            matchMode,
+          )
+        : this.vcsCalculator.calculateMatchVcs(
+            parsedMatch.participants,
+            matchMode,
+          );
 
     // Check if the match already exists in the database
     const existing = await this.prisma.match.findUnique({
@@ -132,7 +144,7 @@ export class MatchLoggingService {
 
     // Create or update match record and log participant stats
     await this.prisma.$transaction(async (tx) => {
-      let match;
+      let match: { id: string };
       if (existingMatchId) {
         // Update the existing bracket match with Riot API data
         match = await tx.match.update({
@@ -175,12 +187,13 @@ export class MatchLoggingService {
             role: (extras.role as string) ?? null,
             lane: (extras.lane as string) ?? null,
             totalDamageDealt: (extras.totalDamageDealt as number) ?? null,
-            totalDamageDealtToChampions: (extras.totalDamageDealtToChampions as number) ?? null,
+            totalDamageDealtToChampions:
+              (extras.totalDamageDealtToChampions as number) ?? null,
             visionScore: (extras.visionScore as number) ?? null,
             objectivesStolen: (extras.objectivesStolen as number) ?? null,
             turretKills: (extras.turretKills as number) ?? null,
             inhibitorKills: (extras.inhibitorKills as number) ?? null,
-            
+
             kills: participant.kills,
             deaths: participant.deaths,
             assists: participant.assists,
@@ -210,7 +223,6 @@ export class MatchLoggingService {
       this.logger.log(
         `Logged stats for all participants of match ${matchId} (ID: ${match.id})`,
       );
-
     });
   }
 

@@ -7,7 +7,7 @@ import { MatchMode, GameTitle } from '@prisma/client';
 @ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('match-logging')
 export class MatchLoggingController {
-  constructor(private readonly matchLoggingService: MatchLoggingService) { }
+  constructor(private readonly matchLoggingService: MatchLoggingService) {}
 
   @Post('log/:title/:matchId')
   @ApiOperation({ summary: 'Log a match and fetch data from Riot API' })
@@ -19,7 +19,9 @@ export class MatchLoggingController {
   ) {
     const isMock = useMock === 'true';
     await this.matchLoggingService.logMatch(title, matchId, mode, isMock);
-    return { message: `${title} match ${matchId} logged successfully in mode ${mode} (mock=${isMock})` };
+    return {
+      message: `${title} match ${matchId} logged successfully in mode ${mode} (mock=${isMock})`,
+    };
   }
 
   @Get('stats/:matchId')

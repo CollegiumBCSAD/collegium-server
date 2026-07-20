@@ -72,7 +72,7 @@ describe('UniversitiesService', () => {
 
     it('should create and return a new university', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(null); // domain not taken
-      
+
       const mockCreated = { id: 'uuid', ...dto };
       mockPrismaService.university.create.mockResolvedValue(mockCreated);
 
@@ -85,7 +85,9 @@ describe('UniversitiesService', () => {
     });
 
     it('should throw ConflictException if domain already exists', async () => {
-      mockPrismaService.university.findUnique.mockResolvedValue({ id: 'existing' });
+      mockPrismaService.university.findUnique.mockResolvedValue({
+        id: 'existing',
+      });
 
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
     });

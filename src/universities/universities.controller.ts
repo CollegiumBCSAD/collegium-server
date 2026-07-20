@@ -19,7 +19,8 @@ export class UniversitiesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get university profile by ID' })
-  findOne(@Param('id') id: string) { // Fixed this from @Body to @Param!
+  findOne(@Param('id') id: string) {
+    // Fixed this from @Body to @Param!
     return this.universitiesService.findOne(id);
   }
 

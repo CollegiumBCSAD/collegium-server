@@ -54,7 +54,11 @@ describe('TournamentsService', () => {
   describe('create()', () => {
     it('should create a tournament and return it', async () => {
       const dto = { name: 'Intercollegiate Cup 2026' };
-      const mockResult = { id: 'tournament-uuid', name: dto.name, status: TournamentStatus.UPCOMING };
+      const mockResult = {
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.UPCOMING,
+      };
 
       mockPrismaService.tournament.create.mockResolvedValue(mockResult);
 
@@ -73,13 +77,22 @@ describe('TournamentsService', () => {
     const universityId = 'university-uuid';
 
     it('should register a university to an UPCOMING tournament', async () => {
-      const mockTournament = { id: tournamentId, status: TournamentStatus.UPCOMING };
-      const mockUpdated = { id: tournamentId, universities: [{ id: universityId }] };
+      const mockTournament = {
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+      };
+      const mockUpdated = {
+        id: tournamentId,
+        universities: [{ id: universityId }],
+      };
 
       mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
       mockPrismaService.tournament.update.mockResolvedValue(mockUpdated);
 
-      const result = await service.registerUniversity(tournamentId, universityId);
+      const result = await service.registerUniversity(
+        tournamentId,
+        universityId,
+      );
 
       expect(result).toEqual(mockUpdated);
     });
@@ -93,7 +106,10 @@ describe('TournamentsService', () => {
     });
 
     it('should throw BadRequestException if tournament is not UPCOMING', async () => {
-      const mockTournament = { id: tournamentId, status: TournamentStatus.ONGOING };
+      const mockTournament = {
+        id: tournamentId,
+        status: TournamentStatus.ONGOING,
+      };
       mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
 
       await expect(
@@ -184,7 +200,13 @@ describe('TournamentsService', () => {
     const dto = { riotMatchId: 'SEA_12345' };
 
     it('should confirm a match and trigger the Riot pipeline', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: false, riotMatchId: null, title: GameTitle.LOL };
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        riotMatchId: null,
+        title: GameTitle.LOL,
+      };
       const mockUpdated = { ...mockMatch, riotMatchId: dto.riotMatchId };
 
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
@@ -228,7 +250,12 @@ describe('TournamentsService', () => {
     const matchId = 'match-uuid';
 
     it('should close a confirmed match successfully', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: false, riotMatchId: 'SEA_12345' };
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        riotMatchId: 'SEA_12345',
+      };
       const mockClosed = { ...mockMatch, isVerified: true };
 
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
@@ -247,7 +274,12 @@ describe('TournamentsService', () => {
     });
 
     it('should throw BadRequestException if match has no riotMatchId (not yet confirmed)', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: false, riotMatchId: null };
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        riotMatchId: null,
+      };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
 
       await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
@@ -256,7 +288,12 @@ describe('TournamentsService', () => {
     });
 
     it('should throw BadRequestException if match is already closed', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: true, riotMatchId: 'SEA_12345' };
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: true,
+        riotMatchId: 'SEA_12345',
+      };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
 
       await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(

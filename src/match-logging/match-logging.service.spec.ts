@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource, MatchMode, GameTitle } from '@prisma/client';
+import { MatchMode, GameTitle } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MatchLoggingService } from './match-logging.service';
 import { VcsCalculatorService } from './vcs-calculator.service';
@@ -51,39 +51,66 @@ describe('MatchLoggingService', () => {
   describe('logMatch()', () => {
     it('should skip if match already exists in the database', async () => {
       // Mocking private methods in Jest requires type assertion or bracket notation
-      // But since loadFixture is private, we can just spy on it if we need, 
+      // But since loadFixture is private, we can just spy on it if we need,
       // however it's easier to just mock the prisma findUnique to return true early
-      
+
       // Override the loadFixture temporarily to avoid reading a real file in test
-      service['loadFixture'] = jest.fn().mockReturnValue({ info: { participants: [] } });
+      service['loadFixture'] = jest
+        .fn()
+        .mockReturnValue({ info: { participants: [] } });
 
       mockVcsCalculatorService.calculateMatchVcs.mockReturnValue(new Map());
       mockPrismaService.match.findUnique.mockResolvedValue({ id: 'existing' });
 
-      await service.logMatch(GameTitle.LOL, 'riot-123', MatchMode.TOURNAMENT, true);
+      await service.logMatch(
+        GameTitle.LOL,
+        'riot-123',
+        MatchMode.TOURNAMENT,
+        true,
+      );
 
-      expect(mockPrismaService.match.findUnique).toHaveBeenCalledWith({ where: { riotMatchId: 'riot-123' } });
+      expect(mockPrismaService.match.findUnique).toHaveBeenCalledWith({
+        where: { riotMatchId: 'riot-123' },
+      });
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
 
     it('should log a new match if it does not exist', async () => {
       const mockParticipants = [{ puuid: 'player-1', kills: 5 }];
-      service['loadFixture'] = jest.fn().mockReturnValue({ info: { participants: mockParticipants, gameDuration: 1000, gameMode: 'CLASSIC', platformId: 'PH' } });
-
-      mockVcsCalculatorService.calculateMatchVcs.mockReturnValue(new Map([['player-1', { finalVcs: 10.5 }]]));
-      mockPrismaService.match.findUnique.mockResolvedValue(null);
-      
-      // Mock the transaction callback behavior
-      mockPrismaService.$transaction.mockImplementation(async (callback) => {
-        const tx = {
-          match: { create: jest.fn().mockResolvedValue({ id: 'new-match-id' }) },
-          playerStat: { create: jest.fn() },
-        };
-        await callback(tx);
-        return true;
+      service['loadFixture'] = jest.fn().mockReturnValue({
+        info: {
+          participants: mockParticipants,
+          gameDuration: 1000,
+          gameMode: 'CLASSIC',
+          platformId: 'PH',
+        },
       });
 
-      await service.logMatch(GameTitle.LOL, 'riot-123', MatchMode.TOURNAMENT, true);
+      mockVcsCalculatorService.calculateMatchVcs.mockReturnValue(
+        new Map([['player-1', { finalVcs: 10.5 }]]),
+      );
+      mockPrismaService.match.findUnique.mockResolvedValue(null);
+
+      // Mock the transaction callback behavior
+      mockPrismaService.$transaction.mockImplementation(
+        async (callback: (tx: { match: { create: jest.Mock }; playerStat: { create: jest.Mock } }) => Promise<void>) => {
+          const tx = {
+            match: {
+              create: jest.fn().mockResolvedValue({ id: 'new-match-id' }),
+            },
+            playerStat: { create: jest.fn() },
+          };
+          await callback(tx);
+          return true;
+        },
+      );
+
+      await service.logMatch(
+        GameTitle.LOL,
+        'riot-123',
+        MatchMode.TOURNAMENT,
+        true,
+      );
 
       expect(mockPrismaService.$transaction).toHaveBeenCalled();
     });

@@ -47,15 +47,13 @@ describe('Collegium API (e2e)', () => {
       data: { name: 'Test University', domain: 'test.edu.ph' },
     });
 
-    const res = await request(app.getHttpServer())
-      .post('/auth/register')
-      .send({
-        email: 'base@test.edu.ph',
-        password: 'password123',
-        displayName: 'Base User',
-        role: 'ATHLETE',
-      });
-    sharedToken = res.body.access_token;
+    const res = await request(app.getHttpServer()).post('/auth/register').send({
+      email: 'base@test.edu.ph',
+      password: 'password123',
+      displayName: 'Base User',
+      role: 'ATHLETE',
+    });
+    sharedToken = (res.body as { access_token: string }).access_token;
   });
 
   afterAll(async () => {
@@ -129,7 +127,9 @@ describe('Collegium API (e2e)', () => {
       expect(res.headers['set-cookie']).toBeDefined();
 
       const cookie = res.headers['set-cookie'] as unknown as string[];
-      expect(cookie.some((c: string) => c.startsWith('refresh_token='))).toBe(true);
+      expect(cookie.some((c: string) => c.startsWith('refresh_token='))).toBe(
+        true,
+      );
     });
 
     it('should reject duplicate email registration', async () => {
@@ -169,7 +169,9 @@ describe('Collegium API (e2e)', () => {
       expect(res.body).toHaveProperty('access_token');
 
       const cookie = res.headers['set-cookie'] as unknown as string[];
-      expect(cookie.some((c: string) => c.startsWith('refresh_token='))).toBe(true);
+      expect(cookie.some((c: string) => c.startsWith('refresh_token='))).toBe(
+        true,
+      );
     });
 
     it('should reject wrong password', async () => {
@@ -198,7 +200,7 @@ describe('Collegium API (e2e)', () => {
         .post('/auth/login')
         .send({ email: 'athlete@test.edu.ph', password: 'password123' });
 
-      accessToken = res.body.access_token;
+      accessToken = (res.body as { access_token: string }).access_token;
       refreshToken = extractRefreshToken(res)!;
     });
 
@@ -211,7 +213,7 @@ describe('Collegium API (e2e)', () => {
       expect(res.body).toHaveProperty('access_token');
 
       refreshToken = extractRefreshToken(res) ?? refreshToken;
-      accessToken = res.body.access_token;
+      accessToken = (res.body as { access_token: string }).access_token;
     });
 
     it('should reject an already-used refresh token (rotation)', async () => {
@@ -234,10 +236,12 @@ describe('Collegium API (e2e)', () => {
         .set('Cookie', `refresh_token=${refreshToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.message).toBe('Logged out successfully');
+      expect((res.body as { message: string }).message).toBe('Logged out successfully');
 
       const cookies = (res.headers['set-cookie'] as unknown as string[]) ?? [];
-      const cleared = cookies.find((c: string) => c.startsWith('refresh_token='));
+      const cleared = cookies.find((c: string) =>
+        c.startsWith('refresh_token='),
+      );
       expect(cleared).toMatch(/refresh_token=;/);
     });
   });
@@ -253,7 +257,7 @@ describe('Collegium API (e2e)', () => {
         .post('/auth/login')
         .send({ email: 'athlete@test.edu.ph', password: 'password123' });
 
-      const token = loginRes.body.access_token;
+      const token = (loginRes.body as { access_token: string }).access_token;
 
       const res = await request(app.getHttpServer())
         .post('/universities')

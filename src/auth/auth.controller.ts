@@ -12,7 +12,12 @@ import {
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiCookieAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiCookieAuth,
+} from '@nestjs/swagger';
 import * as express from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -84,11 +89,14 @@ export class AuthController {
     @Req() req: express.Request,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const result = await this.authService.googleLogin(req.user as any);
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    const result = await this.authService.googleLogin(req.user as { email: string; displayName: string });
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     if ('message' in result) {
-      res.redirect(`${frontendUrl}/auth/pending?message=${encodeURIComponent(result.message)}`);
+      res.redirect(
+        `${frontendUrl}/auth/pending?message=${encodeURIComponent(result.message)}`,
+      );
       return;
     }
 
@@ -100,12 +108,16 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   @ApiCookieAuth(REFRESH_TOKEN_COOKIE)
-  @ApiOperation({ summary: 'Use refresh token cookie to get a new access token' })
+  @ApiOperation({
+    summary: 'Use refresh token cookie to get a new access token',
+  })
   async refresh(
     @Req() req: express.Request,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const token: string | undefined = (req.cookies as Record<string, string>)[REFRESH_TOKEN_COOKIE];
+    const token: string | undefined = (req.cookies as Record<string, string>)[
+      REFRESH_TOKEN_COOKIE
+    ];
 
     if (!token) {
       throw new UnauthorizedException('No refresh token provided');
@@ -126,7 +138,9 @@ export class AuthController {
     @Req() req: express.Request,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const token: string | undefined = (req.cookies as Record<string, string>)[REFRESH_TOKEN_COOKIE];
+    const token: string | undefined = (req.cookies as Record<string, string>)[
+      REFRESH_TOKEN_COOKIE
+    ];
 
     if (token) {
       await this.authService.logout(token);
@@ -141,10 +155,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update user account status (Admin only)' })
-  updateStatus(
-    @Param('id') id: string,
-    @Body('status') status: AccountStatus,
-  ) {
+  updateStatus(@Param('id') id: string, @Body('status') status: AccountStatus) {
     return this.authService.updateUserStatus(id, status);
   }
 }

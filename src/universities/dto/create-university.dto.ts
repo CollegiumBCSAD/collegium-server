@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, Matches} from 'class-validator';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
 
 export class CreateUniversityDto {
   @IsNotEmpty()
@@ -10,6 +10,5 @@ export class CreateUniversityDto {
   @Matches(/^[a-zA-Z0-9.-]+\.edu\.ph$/, {
     message: 'Domain must be a valid .edu.ph domain (e.g., admu.edu.ph)',
   })
-
   domain: string;
 }

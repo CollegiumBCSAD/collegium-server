@@ -4,5 +4,4 @@ export class CreateTournamentDto {
   @IsNotEmpty()
   @IsString()
   name: string;
-
 }

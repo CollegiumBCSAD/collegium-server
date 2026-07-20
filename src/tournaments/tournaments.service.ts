@@ -66,7 +66,9 @@ export class TournamentsService {
     }
 
     if (tournament.status !== TournamentStatus.UPCOMING) {
-      throw new BadRequestException('Bracket can only be generated for UPCOMING tournaments');
+      throw new BadRequestException(
+        'Bracket can only be generated for UPCOMING tournaments',
+      );
     }
 
     const universities = tournament.universities;

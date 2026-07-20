@@ -71,7 +71,12 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.universityId,
+    );
   }
 
   // LOGIN — email + password
@@ -114,14 +119,16 @@ export class AuthService {
     }
 
     // Step 4 — Issue JWT
-    return this.generateTokens(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.universityId,
+    );
   }
 
   // GOOGLE LOGIN — OAuth flow
-  async googleLogin(googleUser: {
-    email: string;
-    displayName: string;
-  }) {
+  async googleLogin(googleUser: { email: string; displayName: string }) {
     const email = googleUser.email.toLowerCase().trim();
 
     // Step 1 — Enforce .edu.ph even for Google accounts
@@ -174,7 +181,12 @@ export class AuthService {
     }
 
     // Step 6 — Issue JWT
-    return this.generateTokens(user.id, user.email, user.role, user.universityId);
+    return this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.universityId,
+    );
   }
 
   async refreshTokens(incomingToken: string) {
@@ -191,7 +203,9 @@ export class AuthService {
 
     if (stored.expiresAt < new Date()) {
       await this.prisma.refreshToken.delete({ where: { tokenHash } });
-      throw new UnauthorizedException('Refresh token has expired. Please log in again.');
+      throw new UnauthorizedException(
+        'Refresh token has expired. Please log in again.',
+      );
     }
 
     if (stored.user.status !== AccountStatus.ACTIVE) {
@@ -246,7 +260,7 @@ export class AuthService {
   async generateTokens(
     userId: string,
     email: string,
-    role: any,
+    role: Role,
     universityId: string,
   ) {
     const payload: JwtPayload = {
