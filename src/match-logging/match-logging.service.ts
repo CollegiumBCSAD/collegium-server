@@ -1,3 +1,5 @@
+import { LolMatchDto } from './interfaces/lol-match-dto.interface';
+import { ValorantMatchDto } from './interfaces/valorant-match-dto.interface';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GameTitle, MatchMode, DataSource } from '@prisma/client';
@@ -22,13 +24,17 @@ export class MatchLoggingService {
   ) {}
 
   // ponytail: shrink - consolidated fixture loader
-  private loadFixture(filename: string): any {
-    const fixturePath = path.join(process.cwd(), 'src/match-logging/fixtures', filename);
-    return JSON.parse(fs.readFileSync(fixturePath, 'utf-8'));
+  private loadFixture(filename: string): unknown {
+    const fixturePath = path.join(
+      process.cwd(),
+      'src/match-logging/fixtures',
+      filename,
+    );
+    return JSON.parse(fs.readFileSync(fixturePath, 'utf-8')) as unknown;
   }
 
   // ponytail: native fetch replaces axios
-  private async fetchFromRiotApi(matchId: string): Promise<any> {
+  private async fetchFromRiotApi(matchId: string): Promise<unknown> {
     const cacheKey = `match:lol:${matchId}`;
     const cachedData = await this.cacheManager.get(cacheKey);
     if (cachedData) {
@@ -42,7 +48,7 @@ export class MatchLoggingService {
     const response = await fetch(url, {
       headers: { 'X-Riot-Token': apiKey },
     });
-    const data = await response.json();
+    const data = (await response.json()) as unknown;
 
     await this.cacheManager.set(cacheKey, data, 86400000);
     this.logger.log(`Cache MISS for LoL match ${matchId}. Saved to Redis.`);
@@ -50,7 +56,7 @@ export class MatchLoggingService {
     return data;
   }
 
-  private async fetchValorantFromRiotApi(matchId: string): Promise<any> {
+  private async fetchValorantFromRiotApi(matchId: string): Promise<unknown> {
     const cacheKey = `match:val:${matchId}`;
     const cachedData = await this.cacheManager.get(cacheKey);
     if (cachedData) {
@@ -64,10 +70,12 @@ export class MatchLoggingService {
     const response = await fetch(url, {
       headers: { 'X-Riot-Token': apiKey },
     });
-    const data = await response.json();
+    const data = (await response.json()) as unknown;
 
     await this.cacheManager.set(cacheKey, data, 86400000);
-    this.logger.log(`Cache MISS for Valorant match ${matchId}. Saved to Redis.`);
+    this.logger.log(
+      `Cache MISS for Valorant match ${matchId}. Saved to Redis.`,
+    );
 
     return data;
   }
