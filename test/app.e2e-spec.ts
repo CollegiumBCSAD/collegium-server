@@ -236,7 +236,9 @@ describe('Collegium API (e2e)', () => {
         .set('Cookie', `refresh_token=${refreshToken}`);
 
       expect(res.status).toBe(200);
-      expect((res.body as { message: string }).message).toBe('Logged out successfully');
+      expect((res.body as { message: string }).message).toBe(
+        'Logged out successfully',
+      );
 
       const cookies = (res.headers['set-cookie'] as unknown as string[]) ?? [];
       const cleared = cookies.find((c: string) =>

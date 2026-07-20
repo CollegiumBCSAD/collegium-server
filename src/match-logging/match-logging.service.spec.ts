@@ -93,7 +93,12 @@ describe('MatchLoggingService', () => {
 
       // Mock the transaction callback behavior
       mockPrismaService.$transaction.mockImplementation(
-        async (callback: (tx: { match: { create: jest.Mock }; playerStat: { create: jest.Mock } }) => Promise<void>) => {
+        async (
+          callback: (tx: {
+            match: { create: jest.Mock };
+            playerStat: { create: jest.Mock };
+          }) => Promise<void>,
+        ) => {
           const tx = {
             match: {
               create: jest.fn().mockResolvedValue({ id: 'new-match-id' }),

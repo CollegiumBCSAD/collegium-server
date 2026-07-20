@@ -38,7 +38,12 @@ describe('MatchLoggingController', () => {
 
       await controller.logMatch(title, matchId, mode, useMock);
 
-      expect(jest.spyOn(service, 'logMatch')).toHaveBeenCalledWith(title, matchId, mode, true);
+      expect(jest.spyOn(service, 'logMatch')).toHaveBeenCalledWith(
+        title,
+        matchId,
+        mode,
+        true,
+      );
     });
   });
 });

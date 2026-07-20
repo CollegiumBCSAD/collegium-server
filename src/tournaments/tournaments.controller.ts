@@ -24,7 +24,10 @@ export class TournamentsController {
   @Post(':id/register')
   @Roles(Role.COACH)
   @ApiOperation({ summary: 'Register your university for a tournament' })
-  register(@Param('id') tournamentId: string, @Request() req: { user: { universityId: string } }) {
+  register(
+    @Param('id') tournamentId: string,
+    @Request() req: { user: { universityId: string } },
+  ) {
     const universityId = req.user.universityId;
     return this.tournamentsService.registerUniversity(
       tournamentId,

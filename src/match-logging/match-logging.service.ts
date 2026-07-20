@@ -2,9 +2,9 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GameTitle, MatchMode, DataSource } from '@prisma/client';
 import { ParserFactory } from './parsers/parser.factory';
+// ponytail: native fetch replaces axios dependency; single fixture loader function
 import * as fs from 'fs';
 import * as path from 'path';
-import axios from 'axios';
 import { VcsCalculatorService } from './vcs-calculator.service';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -21,28 +21,13 @@ export class MatchLoggingService {
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
-  // Load match data from fixture file for LoL
-  private loadFixture(): any {
-    const fixturePath = path.join(
-      process.cwd(),
-      'src/match-logging/fixtures/sample-lol-match.json',
-    );
-
-    const raw = fs.readFileSync(fixturePath, 'utf-8');
-    return JSON.parse(raw);
+  // ponytail: shrink - consolidated fixture loader
+  private loadFixture(filename: string): any {
+    const fixturePath = path.join(process.cwd(), 'src/match-logging/fixtures', filename);
+    return JSON.parse(fs.readFileSync(fixturePath, 'utf-8'));
   }
 
-  // Load match data from fixture file for Valorant
-  private loadValorantFixture(): any {
-    const fixturePath = path.join(
-      process.cwd(),
-      'src/match-logging/fixtures/sample-valorant-match.json',
-    );
-
-    const raw = fs.readFileSync(fixturePath, 'utf-8');
-    return JSON.parse(raw);
-  }
-
+  // ponytail: native fetch replaces axios
   private async fetchFromRiotApi(matchId: string): Promise<any> {
     const cacheKey = `match:lol:${matchId}`;
     const cachedData = await this.cacheManager.get(cacheKey);
@@ -51,19 +36,18 @@ export class MatchLoggingService {
       return cachedData;
     }
 
-    const apiKey = this.configService.get<string>('RIOT_API_KEY');
+    const apiKey = this.configService.get<string>('RIOT_API_KEY') ?? '';
     const url = `https://sea.api.riotgames.com/lol/match/v5/matches/${matchId}`;
 
-    const response = await axios.get(url, {
-      headers: {
-        'X-Riot-Token': apiKey,
-      },
+    const response = await fetch(url, {
+      headers: { 'X-Riot-Token': apiKey },
     });
+    const data = await response.json();
 
-    await this.cacheManager.set(cacheKey, response.data, 86400000);
+    await this.cacheManager.set(cacheKey, data, 86400000);
     this.logger.log(`Cache MISS for LoL match ${matchId}. Saved to Redis.`);
 
-    return response.data;
+    return data;
   }
 
   private async fetchValorantFromRiotApi(matchId: string): Promise<any> {
@@ -74,21 +58,18 @@ export class MatchLoggingService {
       return cachedData;
     }
 
-    const apiKey = this.configService.get<string>('RIOT_API_KEY');
+    const apiKey = this.configService.get<string>('RIOT_API_KEY') ?? '';
     const url = `https://ap.api.riotgames.com/val/match/v1/matches/${matchId}`;
 
-    const response = await axios.get(url, {
-      headers: {
-        'X-Riot-Token': apiKey,
-      },
+    const response = await fetch(url, {
+      headers: { 'X-Riot-Token': apiKey },
     });
+    const data = await response.json();
 
-    await this.cacheManager.set(cacheKey, response.data, 86400000);
-    this.logger.log(
-      `Cache MISS for Valorant match ${matchId}. Saved to Redis.`,
-    );
+    await this.cacheManager.set(cacheKey, data, 86400000);
+    this.logger.log(`Cache MISS for Valorant match ${matchId}. Saved to Redis.`);
 
-    return response.data;
+    return data;
   }
 
   // Main method to log match data to database
@@ -106,8 +87,8 @@ export class MatchLoggingService {
     // Get the raw match data either from the fixture file or from the Riot API
     const rawData = useMock
       ? title === GameTitle.VALORANT
-        ? this.loadValorantFixture()
-        : this.loadFixture()
+        ? this.loadFixture('sample-valorant-match.json')
+        : this.loadFixture('sample-lol-match.json')
       : title === GameTitle.VALORANT
         ? await this.fetchValorantFromRiotApi(matchId)
         : await this.fetchFromRiotApi(matchId);

@@ -89,7 +89,9 @@ export class AuthController {
     @Req() req: express.Request,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const result = await this.authService.googleLogin(req.user as { email: string; displayName: string });
+    const result = await this.authService.googleLogin(
+      req.user as { email: string; displayName: string },
+    );
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 

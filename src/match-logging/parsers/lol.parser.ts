@@ -11,31 +11,29 @@ export class LolParser implements MatchParser {
       );
     }
 
-    const participants: NormalizedParticipant[] = info.participants.map(
-      (p) => {
-        const normalized: NormalizedParticipant = {
-          puuid: p.puuid,
-          riotIdGameName: p.riotIdGameName ?? 'Unknown',
-          kills: p.kills,
-          deaths: p.deaths,
-          assists: p.assists,
-          win: p.win,
-          teamId: p.teamId,
-          extras: {
-            championName: p.championName,
-            role: p.role,
-            lane: p.lane,
-            totalDamageDealt: p.totalDamageDealt,
-            totalDamageDealtToChampions: p.totalDamageDealtToChampions,
-            visionScore: p.visionScore,
-            objectivesStolen: p.objectivesStolen,
-            turretKills: p.turretKills,
-            inhibitorKills: p.inhibitorKills,
-          },
-        };
-        return normalized;
-      },
-    );
+    const participants: NormalizedParticipant[] = info.participants.map((p) => {
+      const normalized: NormalizedParticipant = {
+        puuid: p.puuid,
+        riotIdGameName: p.riotIdGameName ?? 'Unknown',
+        kills: p.kills,
+        deaths: p.deaths,
+        assists: p.assists,
+        win: p.win,
+        teamId: p.teamId,
+        extras: {
+          championName: p.championName,
+          role: p.role,
+          lane: p.lane,
+          totalDamageDealt: p.totalDamageDealt,
+          totalDamageDealtToChampions: p.totalDamageDealtToChampions,
+          visionScore: p.visionScore,
+          objectivesStolen: p.objectivesStolen,
+          turretKills: p.turretKills,
+          inhibitorKills: p.inhibitorKills,
+        },
+      };
+      return normalized;
+    });
 
     return {
       gameDuration: info.gameDuration,
