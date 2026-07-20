@@ -76,6 +76,7 @@ describe('TournamentsService', () => {
     const tournamentId = 'tournament-uuid';
     const universityId = 'university-uuid';
 
+
     it('should register a university to an UPCOMING tournament', async () => {
       const mockTournament = {
         id: tournamentId,
@@ -223,7 +224,7 @@ describe('TournamentsService', () => {
         true,
         matchId,
       );
-      expect(result.riotMatchId).toEqual(dto.riotMatchId);
+      expect(result!.riotMatchId).toEqual(dto.riotMatchId);
     });
 
     it('should throw NotFoundException if match is not found', async () => {

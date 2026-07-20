@@ -10,7 +10,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 function extractRefreshToken(res: request.Response): string | undefined {
-  const cookies: string[] = res.headers['set-cookie'] ?? [];
+  const cookies = (res.headers['set-cookie'] as unknown as string[]) ?? [];
   const entry = cookies.find((c) => c.startsWith('refresh_token='));
   return entry?.split(';')[0].replace('refresh_token=', '');
 }
