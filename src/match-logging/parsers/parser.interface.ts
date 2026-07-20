@@ -8,5 +8,5 @@ export interface ParsedMatch {
 }
 
 export interface MatchParser {
-  parse(rawData: any): ParsedMatch;
+  parse(rawData: unknown): ParsedMatch;
 }

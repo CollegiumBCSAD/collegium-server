@@ -1,5 +1,4 @@
-import { LolMatchDto } from './interfaces/lol-match-dto.interface';
-import { ValorantMatchDto } from './interfaces/valorant-match-dto.interface';
+import { ParsedMatch, MatchParser } from './parsers/parser.interface';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GameTitle, MatchMode, DataSource } from '@prisma/client';
@@ -102,8 +101,8 @@ export class MatchLoggingService {
         : await this.fetchFromRiotApi(matchId);
 
     // Parse the raw data using the corresponding parser
-    const parser = ParserFactory.getParser(title);
-    const parsedMatch = parser.parse(rawData);
+    const parser: MatchParser = ParserFactory.getParser(title);
+    const parsedMatch: ParsedMatch = parser.parse(rawData);
 
     // Calculate VCS scores
     const vcsResults =

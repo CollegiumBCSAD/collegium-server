@@ -3,8 +3,9 @@ import { NormalizedParticipant } from '../interfaces/normalized-participant.inte
 import { LolMatchDto } from '../interfaces/lol-match-dto.interface';
 
 export class LolParser implements MatchParser {
-  parse(rawData: LolMatchDto): ParsedMatch {
-    const info = rawData.info;
+  parse(rawData: unknown): ParsedMatch {
+    const dto = rawData as LolMatchDto;
+    const info = dto.info;
     if (!info) {
       throw new Error(
         'Invalid League of Legends match data: rawData.info is missing',

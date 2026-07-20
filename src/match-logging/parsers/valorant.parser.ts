@@ -3,8 +3,9 @@ import { NormalizedParticipant } from '../interfaces/normalized-participant.inte
 import { ValorantMatchDto } from '../interfaces/valorant-match-dto.interface';
 
 export class ValorantParser implements MatchParser {
-  parse(rawData: ValorantMatchDto): ParsedMatch {
-    const matchInfo = rawData.matchInfo;
+  parse(rawData: unknown): ParsedMatch {
+    const data = rawData as ValorantMatchDto;
+    const matchInfo = data.matchInfo;
     if (!matchInfo) {
       throw new Error(
         'Invalid Valorant match data: rawData.matchInfo is missing',
@@ -13,8 +14,8 @@ export class ValorantParser implements MatchParser {
 
     // Determine winning team
     let winningTeamId = '';
-    if (Array.isArray(rawData.teams)) {
-      const winner = rawData.teams.find((t) => t.won === true);
+    if (Array.isArray(data.teams)) {
+      const winner = data.teams.find((t) => t.won === true);
       if (winner) {
         winningTeamId = winner.teamId;
       }
@@ -28,8 +29,8 @@ export class ValorantParser implements MatchParser {
     const bodyshots = new Map<string, number>();
     const legshots = new Map<string, number>();
 
-    if (Array.isArray(rawData.roundResults)) {
-      for (const round of rawData.roundResults) {
+    if (Array.isArray(data.roundResults)) {
+      for (const round of data.roundResults) {
         if (round.bombPlanter) {
           plants.set(
             round.bombPlanter,
@@ -92,7 +93,7 @@ export class ValorantParser implements MatchParser {
       }
     }
 
-    const participants: NormalizedParticipant[] = (rawData.players ?? []).map(
+    const participants: NormalizedParticipant[] = (data.players ?? []).map(
       (p) => {
         const stats = p.stats ?? {
           kills: 0,
