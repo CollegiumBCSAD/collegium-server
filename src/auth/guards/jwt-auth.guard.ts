@@ -10,6 +10,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   canActivate(context: ExecutionContext) {
+    // Disable  jwt guard.. set in env
+    if (process.env.DISABLE_AUTH === 'true') return true;
+
     // check ifthe route has @Public decorator to see if we skip jwt
     //
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [

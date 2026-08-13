@@ -9,6 +9,9 @@ export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // disable auth true in env to disable jwt
+    if (process.env.DISABLE_AUTH === 'true') return true;
+
     // Get required roles from the @Roles() decorator
     const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
       context.getHandler(),

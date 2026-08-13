@@ -24,12 +24,16 @@ async function bootstrap() {
   // ponytail: native nest logging / platform replaces morgan dependency
   app.use(cookieParser());
 
-  const config = new DocumentBuilder()
+  const disableAuth = process.env.DISABLE_AUTH === 'true';
+
+  const configBuilder = new DocumentBuilder()
     .setTitle('API Documentation')
     .setDescription('API documentation for Collegium')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+    .setVersion('1.0');
+
+  if (!disableAuth) configBuilder.addBearerAuth();
+
+  const config = configBuilder.build();
 
   const configService = app.get(ConfigService);
 
@@ -37,6 +41,7 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
+
 
   await app.listen(port);
 }
