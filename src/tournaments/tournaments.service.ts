@@ -6,6 +6,7 @@ import {
 import { GameTitle, MatchMode, TournamentStatus } from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { GlickoService } from '../universities/glicko.service';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 
@@ -14,6 +15,7 @@ export class TournamentsService {
   constructor(
     private prisma: PrismaService,
     private matchLoggingService: MatchLoggingService,
+    private glickoService: GlickoService,
   ) {}
 
   // CREATE — Create a new tournament
@@ -212,6 +214,48 @@ export class TournamentsService {
 
     if (match.isVerified) {
       throw new BadRequestException('This match is already closed');
+    }
+
+    if (match.winnerId && match.loserId) {
+      const winner = await this.prisma.university.findUnique({
+        where: { id: match.winnerId },
+      });
+      const loser = await this.prisma.university.findUnique({
+        where: { id: match.loserId },
+      });
+
+      if (winner && loser) {
+        const result = this.glickoService.calculateMatch(
+          {
+            rating: winner.glicko2_rating,
+            rd: winner.glicko2_rd,
+            sigma: winner.glicko2_sigma,
+          },
+          {
+            rating: loser.glicko2_rating,
+            rd: loser.glicko2_rd,
+            sigma: loser.glicko2_sigma,
+          },
+        );
+
+        await this.prisma.university.update({
+          where: { id: winner.id },
+          data: {
+            glicko2_rating: result.winner.rating,
+            glicko2_rd: result.winner.rd,
+            glicko2_sigma: result.winner.sigma,
+          },
+        });
+
+        await this.prisma.university.update({
+          where: { id: loser.id },
+          data: {
+            glicko2_rating: result.loser.rating,
+            glicko2_rd: result.loser.rd,
+            glicko2_sigma: result.loser.sigma,
+          },
+        });
+      }
     }
 
     return this.prisma.match.update({

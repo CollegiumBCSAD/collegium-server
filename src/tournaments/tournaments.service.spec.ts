@@ -9,9 +9,15 @@ import { TournamentsService } from './tournaments.service';
 // We never hit a real database in unit tests. We mock PrismaService
 // with jest.fn() so we can control what it returns in each test.
 
+import { GlickoService } from '../universities/glicko.service';
+
 const mockPrismaService = {
   tournament: {
     create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+  },
+  university: {
     findUnique: jest.fn(),
     update: jest.fn(),
   },
@@ -35,6 +41,7 @@ describe('TournamentsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TournamentsService,
+        GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MatchLoggingService, useValue: mockMatchLoggingService },
       ],
