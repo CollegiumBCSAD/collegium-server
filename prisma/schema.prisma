@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,10 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
-
 
 enum Role {
   ATHLETE
@@ -50,22 +43,25 @@ enum DataSource {
   PEER_VERIFIED
 }
 
+enum TeamMemberStatus {
+  ACCEPTED
+  PENDING
+  DECLINED
+}
+
 model University {
-  id        String   @id @default(uuid())
-  name      String
-  domain    String   @unique
-
-  glicko2_rating Float   @default(1500)
-  glicko2_rd Float      @default(350)
-  glicko2_sigma Float  @default(0.06)
-
-
-  created_at DateTime @default(now())
-  users     User[]
-
-  tournaments  Tournament[]
-  wonMatches   Match[]      @relation("MatchWinner")
-  lostMatches  Match[]      @relation("MatchLoser")
+  id            String       @id @default(uuid())
+  name          String
+  domain        String       @unique
+  glicko2_rating Float       @default(1500)
+  glicko2_rd     Float       @default(350)
+  glicko2_sigma  Float       @default(0.06)
+  created_at    DateTime     @default(now())
+  users         User[]
+  teams         Team[]
+  tournaments   Tournament[]
+  wonMatches    Match[]      @relation("MatchWinner")
+  lostMatches   Match[]      @relation("MatchLoser")
 }
 
 model User {
@@ -77,9 +73,36 @@ model User {
   displayName    String
   universityId   String
   university     University     @relation(fields: [universityId], references: [id])
+  captainTeams   Team[]         @relation("TeamCaptain")
+  teamMemberships TeamMember[]
   playerStats    PlayerStat[]
   refreshTokens  RefreshToken[]
   createdAt      DateTime       @default(now())
+}
+
+model Team {
+  id           String       @id @default(uuid())
+  name         String
+  gameTitle    GameTitle
+  universityId String
+  university   University   @relation(fields: [universityId], references: [id])
+  captainId    String
+  captain      User         @relation("TeamCaptain", fields: [captainId], references: [id])
+  inviteCode   String       @unique
+  createdAt    DateTime     @default(now())
+  members      TeamMember[]
+}
+
+model TeamMember {
+  id            String           @id @default(uuid())
+  teamId        String
+  team          Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameHandle    String
+  preferredRole String?
+  status        TeamMemberStatus @default(ACCEPTED)
+  joinedAt      DateTime         @default(now())
 }
 
 model RefreshToken {
@@ -92,46 +115,39 @@ model RefreshToken {
 }
 
 model Match {
-  id           String      @id @default(uuid())
-  riotMatchId  String?     @unique
+  id           String       @id @default(uuid())
+  riotMatchId  String?      @unique
   title        GameTitle
   matchMode    MatchMode
   gameDuration Int
   gameMode     String
   platformId   String
-  isVerified   Boolean     @default(false)
-  playedAt     DateTime    @default(now())
+  isVerified   Boolean      @default(false)
+  playedAt     DateTime     @default(now())
   playerStats  PlayerStat[]
-
-  // Winner and Loser universities — set when match is confirmed
   winnerId     String?
-  winner       University? @relation("MatchWinner", fields: [winnerId], references: [id])
+  winner       University?  @relation("MatchWinner", fields: [winnerId], references: [id])
   loserId      String?
-  loser        University? @relation("MatchLoser", fields: [loserId], references: [id])
-
+  loser        University?  @relation("MatchLoser", fields: [loserId], references: [id])
   tournamentId String?
-  tournament   Tournament? @relation(fields: [tournamentId], references: [id])
+  tournament   Tournament?  @relation(fields: [tournamentId], references: [id])
 }
 
 model Tournament {
-  id      String       @id @default(uuid())
-  name    String
-  status  TournamentStatus @default(UPCOMING)
-  createdAt DateTime  @default(now())
-
-
-  matches Match[]
-
+  id           String           @id @default(uuid())
+  name         String
+  status       TournamentStatus @default(UPCOMING)
+  createdAt    DateTime         @default(now())
+  matches      Match[]
   universities University[]
-
 }
 
 model PlayerStat {
-  id                          String     @id @default(uuid())
+  id                          String              @id @default(uuid())
   matchId                     String
-  match                       Match      @relation(fields: [matchId], references: [id])
+  match                       Match               @relation(fields: [matchId], references: [id])
   userId                      String?
-  user                        User?      @relation(fields: [userId], references: [id])
+  user                        User?               @relation(fields: [userId], references: [id])
   puuid                       String
   summonerName                String
   championName                String?
@@ -149,8 +165,8 @@ model PlayerStat {
   win                         Boolean
   teamId                      Int?
   vcsScore                    Float?
-  dataSource                  DataSource @default(API)
-  createdAt                   DateTime   @default(now())
+  dataSource                  DataSource          @default(API)
+  createdAt                   DateTime            @default(now())
   valorantStat                ValorantPlayerStat?
 }
 
@@ -158,14 +174,12 @@ model ValorantPlayerStat {
   id           String     @id @default(uuid())
   playerStatId String     @unique
   playerStat   PlayerStat @relation(fields: [playerStatId], references: [id])
-
   agentName    String?
-  combatScore  Int?       // ACS equivalent
-  headshotPct  Float?     // headshot percentage
-  plants       Int?       // spike plants
-  defuses      Int?       // spike defuses
-  firstBloods  Int?       // first bloods in the match
+  combatScore  Int?
+  headshotPct  Float?
+  plants       Int?
+  defuses      Int?
+  firstBloods  Int?
   damageDealt  Int?
-
   createdAt    DateTime   @default(now())
 }
