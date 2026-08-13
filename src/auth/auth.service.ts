@@ -127,18 +127,15 @@ export class AuthService {
     );
   }
 
-  // GOOGLE LOGIN — OAuth flow
   async googleLogin(googleUser: { email: string; displayName: string }) {
     const email = googleUser.email.toLowerCase().trim();
 
-    // Step 1 — Enforce .edu.ph even for Google accounts
     if (!email.endsWith('.edu.ph')) {
       throw new ForbiddenException(
         'Registration is restricted to verified Philippine collegiate institutions (.edu.ph)',
       );
     }
 
-    // Step 2 — Extract domain and find university
     const domain = email.split('@')[1];
     const university = await this.prisma.university.findUnique({
       where: { domain },
@@ -150,10 +147,8 @@ export class AuthService {
       );
     }
 
-    // Step 3 — Check if user already exists
     let user = await this.prisma.user.findUnique({ where: { email } });
 
-    // Step 4 — Auto-register if first time Google login
     if (!user) {
       user = await this.prisma.user.create({
         data: {
@@ -161,32 +156,51 @@ export class AuthService {
           displayName: googleUser.displayName,
           role: Role.ATHLETE,
           universityId: university.id,
-          status: AccountStatus.ACTIVE, // auto active if edu.ph
-          // No password for Google users
+          status: AccountStatus.ACTIVE,
         },
       });
-
-      return {
-        message:
-          'Account created via Google. Your account is pending admin approval.',
-        userId: user.id,
-      };
     }
 
-    // Step 5 — Check account status
     if (user.status !== AccountStatus.ACTIVE) {
       throw new ForbiddenException(
-        'Your account is not yet active. Please wait for admin approval.',
+        'Your account is not yet active. Please contact your university administrator.',
       );
     }
 
-    // Step 6 — Issue JWT
     return this.generateTokens(
       user.id,
       user.email,
       user.role,
       user.universityId,
     );
+  }
+
+  async getMe(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        role: true,
+        status: true,
+        universityId: true,
+        university: {
+          select: {
+            id: true,
+            name: true,
+            domain: true,
+          },
+        },
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return user;
   }
 
   async refreshTokens(incomingToken: string) {

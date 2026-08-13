@@ -95,13 +95,6 @@ export class AuthController {
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
-    if ('message' in result) {
-      res.redirect(
-        `${frontendUrl}/auth/pending?message=${encodeURIComponent(result.message)}`,
-      );
-      return;
-    }
-
     res.cookie(REFRESH_TOKEN_COOKIE, result.refresh_token, COOKIE_OPTIONS);
     res.redirect(`${frontendUrl}/auth/callback?token=${result.access_token}`);
   }
@@ -150,6 +143,14 @@ export class AuthController {
 
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
     return { message: 'Logged out successfully' };
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current authenticated user profile' })
+  async getMe(@Req() req: express.Request) {
+    const user = req.user as { sub: string };
+    return this.authService.getMe(user.sub);
   }
 
   @Patch('users/:id/status')
