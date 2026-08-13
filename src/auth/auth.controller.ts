@@ -77,9 +77,7 @@ export class AuthController {
   @Get('google')
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Redirects to Google OAuth consent screen' })
-  googleAuth() {
-    // Guard handles the redirect — nothing needed here
-  }
+  googleAuth() {}
 
   @Public()
   @Get('google/callback')
@@ -146,11 +144,16 @@ export class AuthController {
   }
 
   @Get('me')
+  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current authenticated user profile' })
   async getMe(@Req() req: express.Request) {
-    const user = req.user as { sub: string };
-    return this.authService.getMe(user.sub);
+    const user = req.user as { id?: string; sub?: string } | undefined;
+    const userId = user?.id || user?.sub;
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.authService.getMe(userId);
   }
 
   @Patch('users/:id/status')
