@@ -49,6 +49,14 @@ enum TeamMemberStatus {
   DECLINED
 }
 
+enum ScrimStatus {
+  OPEN
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
 model University {
   id            String       @id @default(uuid())
   name          String
@@ -81,16 +89,18 @@ model User {
 }
 
 model Team {
-  id           String       @id @default(uuid())
-  name         String
-  gameTitle    GameTitle
-  universityId String
-  university   University   @relation(fields: [universityId], references: [id])
-  captainId    String
-  captain      User         @relation("TeamCaptain", fields: [captainId], references: [id])
-  inviteCode   String       @unique
-  createdAt    DateTime     @default(now())
-  members      TeamMember[]
+  id              String       @id @default(uuid())
+  name            String
+  gameTitle       GameTitle
+  universityId    String
+  university      University   @relation(fields: [universityId], references: [id])
+  captainId       String
+  captain         User         @relation("TeamCaptain", fields: [captainId], references: [id])
+  inviteCode      String       @unique
+  createdAt       DateTime     @default(now())
+  members         TeamMember[]
+  hostedScrims    Scrim[]      @relation("ScrimHost")
+  acceptedScrims  Scrim[]      @relation("ScrimOpponent")
 }
 
 model TeamMember {
@@ -103,6 +113,8 @@ model TeamMember {
   preferredRole String?
   status        TeamMemberStatus @default(ACCEPTED)
   joinedAt      DateTime         @default(now())
+
+  @@unique([teamId, userId])
 }
 
 model RefreshToken {
@@ -112,6 +124,22 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+model Scrim {
+  id            String      @id @default(uuid())
+  teamId        String
+  team          Team        @relation("ScrimHost", fields: [teamId], references: [id], onDelete: Cascade)
+  gameTitle     GameTitle
+  scheduledAt   DateTime
+  format        String
+  rankRange     String?
+  mapPreference String?
+  notes         String?
+  status        ScrimStatus @default(OPEN)
+  opponentId    String?
+  opponent      Team?       @relation("ScrimOpponent", fields: [opponentId], references: [id])
+  createdAt     DateTime    @default(now())
 }
 
 model Match {
