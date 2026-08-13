@@ -10,17 +10,27 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   canActivate(context: ExecutionContext) {
-    // Disable  jwt guard.. set in env
-    if (process.env.DISABLE_AUTH === 'true') return true;
-
-    // check ifthe route has @Public decorator to see if we skip jwt
-    //
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
 
     if (isPublic) return true;
+
+    const req = context.switchToHttp().getRequest();
+    const hasAuthHeader = !!req.headers.authorization;
+
+    if (process.env.DISABLE_AUTH === 'true' && !hasAuthHeader) {
+      req.user = {
+        id: 'dev-user-id',
+        email: 'dev@umak.edu.ph',
+        displayName: 'Dev Athlete',
+        role: 'ATHLETE',
+        status: 'ACTIVE',
+        universityId: 'umak',
+      };
+      return true;
+    }
 
     return super.canActivate(context);
   }
