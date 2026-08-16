@@ -58,18 +58,34 @@ enum ScrimStatus {
 }
 
 model University {
-  id            String       @id @default(uuid())
+  id            String                 @id @default(uuid())
   name          String
-  domain        String       @unique
-  glicko2_rating Float       @default(1500)
-  glicko2_rd     Float       @default(350)
-  glicko2_sigma  Float       @default(0.06)
-  created_at    DateTime     @default(now())
+  domain        String                 @unique
+  glicko2_rating Float                 @default(1500)
+  glicko2_rd     Float                 @default(350)
+  glicko2_sigma  Float                 @default(0.06)
+  created_at    DateTime               @default(now())
   users         User[]
   teams         Team[]
   tournaments   Tournament[]
-  wonMatches    Match[]      @relation("MatchWinner")
-  lostMatches   Match[]      @relation("MatchLoser")
+  wonMatches    Match[]                @relation("MatchWinner")
+  lostMatches   Match[]                @relation("MatchLoser")
+  gameRatings   UniversityGameRating[]
+}
+
+model UniversityGameRating {
+  id             String    @id @default(uuid())
+  universityId   String
+  university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  gameTitle      GameTitle
+  glicko2_rating Float     @default(1500)
+  glicko2_rd     Float     @default(350)
+  glicko2_sigma  Float     @default(0.06)
+  wins           Int       @default(0)
+  losses         Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([universityId, gameTitle])
 }
 
 model User {
