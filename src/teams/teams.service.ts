@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +19,16 @@ export class TeamsService {
   }
 
   async createTeam(dto: CreateTeamDto) {
+    const university = await this.prisma.university.findUnique({
+      where: { id: dto.universityId },
+    });
+
+    if (university && university.name.toLowerCase().includes('unregistered')) {
+      throw new ForbiddenException(
+        `Your institution (${university.domain}) is not yet verified in Collegium. Athletes from unregistered institutions cannot create active squads until verified by an administrator.`,
+      );
+    }
+
     const existing = await this.prisma.team.findFirst({
       where: {
         name: { equals: dto.name, mode: 'insensitive' },
@@ -97,6 +108,20 @@ export class TeamsService {
   }
 
   async joinTeam(teamId: string, dto: JoinTeamDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+      include: { university: true },
+    });
+
+    if (
+      user?.university &&
+      user.university.name.toLowerCase().includes('unregistered')
+    ) {
+      throw new ForbiddenException(
+        `Your institution (${user.university.domain}) is not yet verified in Collegium. Athletes from unregistered institutions cannot join active squads until verified by an administrator.`,
+      );
+    }
+
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
       include: { university: true },

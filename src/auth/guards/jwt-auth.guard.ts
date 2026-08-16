@@ -24,9 +24,8 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     const req = context.switchToHttp().getRequest<RequestWithUser>();
     const hasAuthHeader = !!req.headers?.authorization;
-    const hasCookie = !!(
-      (req as unknown as { cookies?: Record<string, string> }).cookies?.['access_token']
-    );
+    const hasCookie = !!(req as unknown as { cookies?: Record<string, string> })
+      .cookies?.['access_token'];
 
     if (process.env.DISABLE_AUTH === 'true' && !hasAuthHeader && !hasCookie) {
       req.user = {

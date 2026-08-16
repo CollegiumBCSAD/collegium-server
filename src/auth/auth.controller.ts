@@ -66,7 +66,11 @@ export class AuthController {
   ) {
     const tokens = await this.authService.register(dto);
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      tokens.refresh_token,
+      REFRESH_COOKIE_OPTIONS,
+    );
     return { access_token: tokens.access_token };
   }
 
@@ -80,7 +84,11 @@ export class AuthController {
   ) {
     const tokens = await this.authService.login(dto);
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      tokens.refresh_token,
+      REFRESH_COOKIE_OPTIONS,
+    );
     return { access_token: tokens.access_token };
   }
 
@@ -105,7 +113,11 @@ export class AuthController {
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
     res.cookie(ACCESS_TOKEN_COOKIE, result.access_token, ACCESS_COOKIE_OPTIONS);
-    res.cookie(REFRESH_TOKEN_COOKIE, result.refresh_token, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      result.refresh_token,
+      REFRESH_COOKIE_OPTIONS,
+    );
     res.redirect(`${frontendUrl}/auth/callback`);
   }
 
@@ -131,7 +143,11 @@ export class AuthController {
     const tokens = await this.authService.refreshTokens(token);
 
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_TOKEN_COOKIE,
+      tokens.refresh_token,
+      REFRESH_COOKIE_OPTIONS,
+    );
     return { access_token: tokens.access_token };
   }
 

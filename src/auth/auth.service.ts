@@ -21,6 +21,38 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
+  private async resolveUniversity(domain: string) {
+    let university = await this.prisma.university.findUnique({
+      where: { domain },
+    });
+
+    if (!university) {
+      const knownNames: Record<string, string> = {
+        'umak.edu.ph': 'University of Makati',
+        'admu.edu.ph': 'Ateneo de Manila University',
+        'dlsu.edu.ph': 'De La Salle University',
+        'ust.edu.ph': 'University of Santo Tomas',
+        'up.edu.ph': 'University of the Philippines',
+        'feu.edu.ph': 'Far Eastern University',
+        'nu.edu.ph': 'National University',
+        'adamson.edu.ph': 'Adamson University',
+        'adu.edu.ph': 'Adamson University',
+        'mapua.edu.ph': 'Mapúa University',
+      };
+
+      const name = knownNames[domain] || `Unregistered Institution (${domain})`;
+
+      university = await this.prisma.university.create({
+        data: {
+          domain,
+          name,
+        },
+      });
+    }
+
+    return university;
+  }
+
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
 
@@ -31,16 +63,7 @@ export class AuthService {
     }
 
     const domain = email.split('@')[1];
-
-    const university = await this.prisma.university.findUnique({
-      where: { domain },
-    });
-
-    if (!university) {
-      throw new BadRequestException(
-        `Your institution (${domain}) is not yet registered in Collegium. Please contact your university administrator.`,
-      );
-    }
+    const university = await this.resolveUniversity(domain);
 
     const existing = await this.prisma.user.findUnique({
       where: { email },
@@ -124,15 +147,7 @@ export class AuthService {
     }
 
     const domain = email.split('@')[1];
-    const university = await this.prisma.university.findUnique({
-      where: { domain },
-    });
-
-    if (!university) {
-      throw new BadRequestException(
-        `Your institution (${domain}) is not yet registered in Collegium.`,
-      );
-    }
+    const university = await this.resolveUniversity(domain);
 
     let user = await this.prisma.user.findUnique({ where: { email } });
 

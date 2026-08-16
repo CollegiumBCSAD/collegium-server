@@ -100,9 +100,32 @@ describe('AuthService', () => {
       );
     });
 
-    it('should throw BadRequestException if university domain is not registered', async () => {
+    it('should auto-create university if domain is not registered yet and register successfully', async () => {
+      const mockCreatedUni = {
+        id: 'uni-auto',
+        domain: 'admu.edu.ph',
+        name: 'Ateneo de Manila University',
+      };
       mockPrismaService.university.findUnique.mockResolvedValue(null);
-      await expect(service.register(dto)).rejects.toThrow(BadRequestException);
+      mockPrismaService.university.create = jest
+        .fn()
+        .mockResolvedValue(mockCreatedUni);
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-auto',
+        email: dto.email,
+        role: dto.role,
+        universityId: mockCreatedUni.id,
+      });
+      mockJwtService.sign.mockReturnValue('mocked_access_token');
+      mockPrismaService.refreshToken.create.mockResolvedValue({});
+
+      const result = await service.register(dto);
+      expect(result).toHaveProperty('access_token', 'mocked_access_token');
+      expect(mockPrismaService.university.create).toHaveBeenCalledWith({
+        data: { domain: 'admu.edu.ph', name: 'Ateneo de Manila University' },
+      });
     });
 
     it('should throw ConflictException if email already exists', async () => {
