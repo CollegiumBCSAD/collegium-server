@@ -1,9 +1,9 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UniversitiesService } from './universities.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '@prisma/client';
+import { Role, GameTitle } from '@prisma/client';
 
 @ApiTags('Universities')
 @ApiBearerAuth() // This indicates that the endpoints require authentication
@@ -13,8 +13,8 @@ export class UniversitiesController {
 
   @Get()
   @ApiOperation({ summary: 'Get all universities (Leaderboard)' })
-  findAll() {
-    return this.universitiesService.findAll();
+  findAll(@Query('gameTitle') gameTitle?: GameTitle) {
+    return this.universitiesService.findAll(gameTitle);
   }
 
   @Get(':id')
