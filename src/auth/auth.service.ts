@@ -21,21 +21,17 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  // REGISTER — email + password
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
 
-    // Step 1 — Enforce .edu.ph domain
     if (!email.endsWith('.edu.ph')) {
       throw new ForbiddenException(
         'Registration is restricted to verified Philippine collegiate institutions (.edu.ph)',
       );
     }
 
-    // Step 2 — Extract domain from email
     const domain = email.split('@')[1];
 
-    // Step 3 — Find matching university
     const university = await this.prisma.university.findUnique({
       where: { domain },
     });
@@ -46,7 +42,6 @@ export class AuthService {
       );
     }
 
-    // Step 4 — Check if email already exists
     const existing = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -55,11 +50,8 @@ export class AuthService {
       throw new ConflictException('An account with this email already exists');
     }
 
-    // Step 5 — Hash password
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    // Step 6 — Create user
-    // Status is PENDING by default — admin must approve
     const user = await this.prisma.user.create({
       data: {
         email,
@@ -67,7 +59,7 @@ export class AuthService {
         displayName: dto.displayName,
         role: dto.role ?? Role.ATHLETE,
         universityId: university.id,
-        status: AccountStatus.ACTIVE, // auto active if .edu.ph passes
+        status: AccountStatus.ACTIVE,
       },
     });
 
@@ -79,11 +71,9 @@ export class AuthService {
     );
   }
 
-  // LOGIN — email + password
   async login(dto: LoginDto) {
     const email = dto.email.toLowerCase().trim();
 
-    // Step 1 — Find user
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -92,14 +82,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Step 2 — Compare password
     const isMatch = await bcrypt.compare(dto.password, user.password);
 
     if (!isMatch) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Step 3 — Check account status
     if (user.status === AccountStatus.PENDING) {
       throw new ForbiddenException(
         'Your account is pending admin approval. Please check back later.',
@@ -118,7 +106,6 @@ export class AuthService {
       );
     }
 
-    // Step 4 — Issue JWT
     return this.generateTokens(
       user.id,
       user.email,
@@ -242,9 +229,6 @@ export class AuthService {
     await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
   }
 
-  // ─────────────────────────────────────────
-  // ADMIN — Approve or reject a pending user
-  // ─────────────────────────────────────────
   async updateUserStatus(userId: string, status: AccountStatus) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

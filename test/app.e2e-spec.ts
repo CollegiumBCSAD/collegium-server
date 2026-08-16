@@ -21,6 +21,7 @@ describe('Collegium API (e2e)', () => {
   let sharedToken: string;
 
   beforeAll(async () => {
+    process.env.DISABLE_AUTH = 'false';
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();

@@ -6,6 +6,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { AccountStatus } from '@prisma/client';
 
+import { Request } from 'express';
+
+const cookieExtractor = (req: Request): string | null => {
+  let token: string | null = null;
+  if (req && req.cookies) {
+    token = (req.cookies as Record<string, string>)['access_token'] || null;
+  }
+  return token;
+};
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -13,9 +23,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly configService: ConfigService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        cookieExtractor,
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ]),
       ignoreExpiration: false,
-      // Use ConfigService instead of process.env directly
       secretOrKey: configService.get<string>('JWT_SECRET')!,
     });
   }

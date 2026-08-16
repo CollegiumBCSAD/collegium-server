@@ -30,9 +30,18 @@ import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { AccountStatus, Role } from '@prisma/client';
 
+const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
-const COOKIE_OPTIONS = {
+const ACCESS_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 15 * 60 * 1000,
+  path: '/',
+};
+
+const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
@@ -56,7 +65,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: express.Response,
   ) {
     const tokens = await this.authService.register(dto);
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, COOKIE_OPTIONS);
+    res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
+    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
     return { access_token: tokens.access_token };
   }
 
@@ -69,7 +79,8 @@ export class AuthController {
     @Res({ passthrough: true }) res: express.Response,
   ) {
     const tokens = await this.authService.login(dto);
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, COOKIE_OPTIONS);
+    res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
+    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
     return { access_token: tokens.access_token };
   }
 
@@ -93,8 +104,9 @@ export class AuthController {
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
-    res.cookie(REFRESH_TOKEN_COOKIE, result.refresh_token, COOKIE_OPTIONS);
-    res.redirect(`${frontendUrl}/auth/callback?token=${result.access_token}`);
+    res.cookie(ACCESS_TOKEN_COOKIE, result.access_token, ACCESS_COOKIE_OPTIONS);
+    res.cookie(REFRESH_TOKEN_COOKIE, result.refresh_token, REFRESH_COOKIE_OPTIONS);
+    res.redirect(`${frontendUrl}/auth/callback`);
   }
 
   @Public()
@@ -118,7 +130,8 @@ export class AuthController {
 
     const tokens = await this.authService.refreshTokens(token);
 
-    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, COOKIE_OPTIONS);
+    res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
+    res.cookie(REFRESH_TOKEN_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
     return { access_token: tokens.access_token };
   }
 
@@ -139,6 +152,7 @@ export class AuthController {
       await this.authService.logout(token);
     }
 
+    res.clearCookie(ACCESS_TOKEN_COOKIE, { path: '/' });
     res.clearCookie(REFRESH_TOKEN_COOKIE, { path: '/' });
     return { message: 'Logged out successfully' };
   }
@@ -148,9 +162,12 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current authenticated user profile' })
   async getMe(@Req() req: express.Request) {
-    const user = req.user as { id?: string; sub?: string } | undefined;
+    const reqWithUser = req as unknown as {
+      user?: { id?: string; sub?: string };
+    };
+    const user = reqWithUser.user;
     const userId = user?.id || user?.sub;
-    if (!userId) {
+    if (!userId || typeof userId !== 'string') {
       throw new UnauthorizedException('User not authenticated');
     }
     return this.authService.getMe(userId);
