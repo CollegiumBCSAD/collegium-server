@@ -83,7 +83,6 @@ describe('TournamentsService', () => {
     const tournamentId = 'tournament-uuid';
     const universityId = 'university-uuid';
 
-
     it('should register a university to an UPCOMING tournament', async () => {
       const mockTournament = {
         id: tournamentId,

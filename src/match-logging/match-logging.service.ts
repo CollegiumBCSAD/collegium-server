@@ -10,7 +10,6 @@ import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 
-
 @Injectable()
 export class MatchLoggingService {
   private readonly logger = new Logger(MatchLoggingService.name);
