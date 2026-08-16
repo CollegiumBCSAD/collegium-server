@@ -15,26 +15,34 @@ export class UniversitiesService {
     if (!gameTitle) {
       return this.prisma.university.findMany({
         orderBy: { glicko2_rating: 'desc' },
+        include: { gameRatings: true },
       });
     }
 
-    const universities = await this.prisma.university.findMany();
+    const universities = await this.prisma.university.findMany({
+      include: {
+        gameRatings: {
+          where: { gameTitle },
+        },
+      },
+    });
 
-    const withStats = await Promise.all(
-      universities.map(async (uni) => {
-        const wins = await this.prisma.match.count({
-          where: { title: gameTitle, winnerId: uni.id },
-        });
-        const losses = await this.prisma.match.count({
-          where: { title: gameTitle, loserId: uni.id },
-        });
-        return { ...uni, wins, losses };
-      }),
-    );
+    const mapped = universities.map((uni) => {
+      const ratingRecord = uni.gameRatings[0];
+      return {
+        id: uni.id,
+        name: uni.name,
+        domain: uni.domain,
+        glicko2_rating: ratingRecord ? ratingRecord.glicko2_rating : 1500,
+        glicko2_rd: ratingRecord ? ratingRecord.glicko2_rd : 350,
+        glicko2_sigma: ratingRecord ? ratingRecord.glicko2_sigma : 0.06,
+        wins: ratingRecord ? ratingRecord.wins : 0,
+        losses: ratingRecord ? ratingRecord.losses : 0,
+        createdAt: uni.created_at.toISOString(),
+      };
+    });
 
-    return withStats
-      .filter((u) => u.wins + u.losses > 0)
-      .sort((a, b) => b.wins - a.wins || a.losses - b.losses);
+    return mapped.sort((a, b) => b.glicko2_rating - a.glicko2_rating);
   }
 
   async findOne(id: string) {

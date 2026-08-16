@@ -217,45 +217,66 @@ export class TournamentsService {
     }
 
     if (match.winnerId && match.loserId) {
-      const winner = await this.prisma.university.findUnique({
-        where: { id: match.winnerId },
+      const winnerRating = await this.prisma.universityGameRating.upsert({
+        where: {
+          universityId_gameTitle: {
+            universityId: match.winnerId,
+            gameTitle: match.title,
+          },
+        },
+        create: {
+          universityId: match.winnerId,
+          gameTitle: match.title,
+        },
+        update: {},
       });
-      const loser = await this.prisma.university.findUnique({
-        where: { id: match.loserId },
+
+      const loserRating = await this.prisma.universityGameRating.upsert({
+        where: {
+          universityId_gameTitle: {
+            universityId: match.loserId,
+            gameTitle: match.title,
+          },
+        },
+        create: {
+          universityId: match.loserId,
+          gameTitle: match.title,
+        },
+        update: {},
       });
 
-      if (winner && loser) {
-        const result = this.glickoService.calculateMatch(
-          {
-            rating: winner.glicko2_rating,
-            rd: winner.glicko2_rd,
-            sigma: winner.glicko2_sigma,
-          },
-          {
-            rating: loser.glicko2_rating,
-            rd: loser.glicko2_rd,
-            sigma: loser.glicko2_sigma,
-          },
-        );
+      const result = this.glickoService.calculateMatch(
+        {
+          rating: winnerRating.glicko2_rating,
+          rd: winnerRating.glicko2_rd,
+          sigma: winnerRating.glicko2_sigma,
+        },
+        {
+          rating: loserRating.glicko2_rating,
+          rd: loserRating.glicko2_rd,
+          sigma: loserRating.glicko2_sigma,
+        },
+      );
 
-        await this.prisma.university.update({
-          where: { id: winner.id },
-          data: {
-            glicko2_rating: result.winner.rating,
-            glicko2_rd: result.winner.rd,
-            glicko2_sigma: result.winner.sigma,
-          },
-        });
+      await this.prisma.universityGameRating.update({
+        where: { id: winnerRating.id },
+        data: {
+          glicko2_rating: result.winner.rating,
+          glicko2_rd: result.winner.rd,
+          glicko2_sigma: result.winner.sigma,
+          wins: { increment: 1 },
+        },
+      });
 
-        await this.prisma.university.update({
-          where: { id: loser.id },
-          data: {
-            glicko2_rating: result.loser.rating,
-            glicko2_rd: result.loser.rd,
-            glicko2_sigma: result.loser.sigma,
-          },
-        });
-      }
+      await this.prisma.universityGameRating.update({
+        where: { id: loserRating.id },
+        data: {
+          glicko2_rating: result.loser.rating,
+          glicko2_rd: result.loser.rd,
+          glicko2_sigma: result.loser.sigma,
+          losses: { increment: 1 },
+        },
+      });
     }
 
     return this.prisma.match.update({
