@@ -1,28 +1,35 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { TeamMemberStatus } from "@prisma/client";
-import { CreateTeamDto, JoinTeamDto } from "./dto/teams.dto";
-import { randomBytes } from "crypto";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { TeamMemberStatus } from '@prisma/client';
+import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
+import { randomBytes } from 'crypto';
 
 @Injectable()
 export class TeamsService {
   constructor(private readonly prisma: PrismaService) {}
 
   private generateInviteCode(): string {
-    return randomBytes(4).toString("hex").toLowerCase();
+    return randomBytes(4).toString('hex').toLowerCase();
   }
 
   async createTeam(dto: CreateTeamDto) {
     const existing = await this.prisma.team.findFirst({
       where: {
-        name: { equals: dto.name, mode: "insensitive" },
+        name: { equals: dto.name, mode: 'insensitive' },
         universityId: dto.universityId,
         gameTitle: dto.gameTitle,
       },
     });
 
     if (existing) {
-      throw new ConflictException("A team with this name already exists for your university in this game.");
+      throw new ConflictException(
+        'A team with this name already exists for your university in this game.',
+      );
     }
 
     const inviteCode = this.generateInviteCode();
@@ -83,7 +90,7 @@ export class TeamsService {
     });
 
     if (!team) {
-      throw new NotFoundException("Invalid or expired invite link.");
+      throw new NotFoundException('Invalid or expired invite link.');
     }
 
     return team;
@@ -96,7 +103,7 @@ export class TeamsService {
     });
 
     if (!team) {
-      throw new NotFoundException("Team not found.");
+      throw new NotFoundException('Team not found.');
     }
 
     const existingMember = await this.prisma.teamMember.findFirst({
@@ -104,11 +111,15 @@ export class TeamsService {
     });
 
     if (existingMember) {
-      throw new BadRequestException("User is already a member or applicant of this team.");
+      throw new BadRequestException(
+        'User is already a member or applicant of this team.',
+      );
     }
 
     const isInstantJoin = dto.inviteCode && dto.inviteCode === team.inviteCode;
-    const memberStatus = isInstantJoin ? TeamMemberStatus.ACCEPTED : TeamMemberStatus.PENDING;
+    const memberStatus = isInstantJoin
+      ? TeamMemberStatus.ACCEPTED
+      : TeamMemberStatus.PENDING;
 
     const member = await this.prisma.teamMember.create({
       data: {
@@ -133,8 +144,8 @@ export class TeamsService {
       member,
       status: memberStatus,
       message: isInstantJoin
-        ? "Successfully joined the team via invite link!"
-        : "Join request submitted. Awaiting Team Captain approval.",
+        ? 'Successfully joined the team via invite link!'
+        : 'Join request submitted. Awaiting Team Captain approval.',
     };
   }
 
@@ -144,11 +155,13 @@ export class TeamsService {
     });
 
     if (!team) {
-      throw new NotFoundException("Team not found.");
+      throw new NotFoundException('Team not found.');
     }
 
     if (team.captainId !== captainId) {
-      throw new BadRequestException("Only the Team Captain can manage join requests.");
+      throw new BadRequestException(
+        'Only the Team Captain can manage join requests.',
+      );
     }
 
     return this.prisma.teamMember.findMany({
@@ -165,16 +178,25 @@ export class TeamsService {
     });
   }
 
-  async handleJoinRequest(teamId: string, requestId: string, captainId: string, accept: boolean) {
+  async handleJoinRequest(
+    teamId: string,
+    requestId: string,
+    captainId: string,
+    accept: boolean,
+  ) {
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
     });
 
     if (!team || team.captainId !== captainId) {
-      throw new BadRequestException("Unauthorized to manage requests for this team.");
+      throw new BadRequestException(
+        'Unauthorized to manage requests for this team.',
+      );
     }
 
-    const newStatus = accept ? TeamMemberStatus.ACCEPTED : TeamMemberStatus.DECLINED;
+    const newStatus = accept
+      ? TeamMemberStatus.ACCEPTED
+      : TeamMemberStatus.DECLINED;
 
     return this.prisma.teamMember.update({
       where: { id: requestId },

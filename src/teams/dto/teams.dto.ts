@@ -1,4 +1,4 @@
-import { GameTitle } from "@prisma/client";
+import { GameTitle } from '@prisma/client';
 
 export class CreateTeamDto {
   name: string;
