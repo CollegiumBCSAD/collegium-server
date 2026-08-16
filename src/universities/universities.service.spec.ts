@@ -42,6 +42,7 @@ describe('UniversitiesService', () => {
 
       expect(mockPrismaService.university.findMany).toHaveBeenCalledWith({
         orderBy: { glicko2_rating: 'desc' },
+        include: { gameRatings: true },
       });
       expect(result).toEqual(mockUniversities);
     });

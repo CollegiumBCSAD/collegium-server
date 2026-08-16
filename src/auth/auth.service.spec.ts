@@ -24,6 +24,7 @@ jest.mock('crypto', () => ({
 const mockPrismaService = {
   university: {
     findUnique: jest.fn(),
+    create: jest.fn(),
   },
   user: {
     findUnique: jest.fn(),
