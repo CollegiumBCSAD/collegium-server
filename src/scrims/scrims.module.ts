@@ -1,6 +1,6 @@
-import { Module } from "@nestjs/common";
-import { ScrimsController } from "./scrims.controller";
-import { ScrimsService } from "./scrims.service";
+import { Module } from '@nestjs/common';
+import { ScrimsController } from './scrims.controller';
+import { ScrimsService } from './scrims.service';
 
 @Module({
   controllers: [ScrimsController],

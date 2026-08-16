@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { GameTitle, ScrimStatus } from "@prisma/client";
-import { CreateScrimDto, AcceptScrimDto } from "./dto/scrims.dto";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { GameTitle, ScrimStatus } from '@prisma/client';
+import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
 
 @Injectable()
 export class ScrimsService {
@@ -13,7 +17,7 @@ export class ScrimsService {
     });
 
     if (!team) {
-      throw new NotFoundException("Host team not found.");
+      throw new NotFoundException('Host team not found.');
     }
 
     return this.prisma.scrim.create({
@@ -43,7 +47,7 @@ export class ScrimsService {
         ...(gameTitle ? { gameTitle } : {}),
         ...(status ? { status } : { status: ScrimStatus.OPEN }),
       },
-      orderBy: { scheduledAt: "asc" },
+      orderBy: { scheduledAt: 'asc' },
       include: {
         team: {
           include: {
@@ -65,15 +69,17 @@ export class ScrimsService {
     });
 
     if (!scrim) {
-      throw new NotFoundException("Scrim offer not found.");
+      throw new NotFoundException('Scrim offer not found.');
     }
 
     if (scrim.status !== ScrimStatus.OPEN) {
-      throw new BadRequestException("This scrim is no longer available.");
+      throw new BadRequestException('This scrim is no longer available.');
     }
 
     if (scrim.teamId === dto.opponentId) {
-      throw new BadRequestException("A team cannot accept its own scrim offer.");
+      throw new BadRequestException(
+        'A team cannot accept its own scrim offer.',
+      );
     }
 
     return this.prisma.scrim.update({

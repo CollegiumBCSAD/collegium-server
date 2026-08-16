@@ -1,5 +1,11 @@
-import { IsString, IsNotEmpty, IsEnum, IsOptional, IsDateString } from "class-validator";
-import { GameTitle } from "@prisma/client";
+import {
+  IsString,
+  IsNotEmpty,
+  IsEnum,
+  IsOptional,
+  IsDateString,
+} from 'class-validator';
+import { GameTitle } from '@prisma/client';
 
 export class CreateScrimDto {
   @IsString()
