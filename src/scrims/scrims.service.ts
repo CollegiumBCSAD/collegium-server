@@ -48,7 +48,7 @@ export class ScrimsService {
   }
 
   async getScrims(gameTitle?: GameTitle, status?: ScrimStatus) {
-    return this.prisma.scrim.findMany({
+    const list = await this.prisma.scrim.findMany({
       where: {
         ...(gameTitle ? { gameTitle } : {}),
         ...(status ? { status } : { status: { in: [ScrimStatus.OPEN, ScrimStatus.PENDING, ScrimStatus.CONFIRMED, ScrimStatus.CANCELLED] } }),
@@ -67,11 +67,40 @@ export class ScrimsService {
         },
       },
     });
+
+    return list.map((scrim) => {
+      let pendingRequests: Array<{ teamId: string; teamName: string; universityName?: string }> = [];
+      if (scrim.notes && scrim.notes.includes('__SCRIM_REQS__')) {
+        try {
+          const jsonStr = scrim.notes.split('__SCRIM_REQS__')[1];
+          pendingRequests = JSON.parse(jsonStr);
+        } catch {
+          pendingRequests = [];
+        }
+      }
+
+      if (pendingRequests.length === 0 && scrim.opponent) {
+        pendingRequests = [{
+          teamId: scrim.opponent.id,
+          teamName: scrim.opponent.name,
+          universityName: scrim.opponent.university?.name,
+        }];
+      }
+
+      const cleanedNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
+
+      return {
+        ...scrim,
+        notes: cleanedNotes,
+        pendingRequests,
+      };
+    });
   }
 
   async acceptScrim(scrimId: string, dto: AcceptScrimDto) {
     const scrim = await this.prisma.scrim.findUnique({
       where: { id: scrimId },
+      include: { team: true },
     });
 
     if (!scrim) {
@@ -84,12 +113,13 @@ export class ScrimsService {
 
     let opponentTeam = await this.prisma.team.findUnique({
       where: { id: dto.opponentId },
+      include: { university: true },
     });
 
     if (!opponentTeam) {
       const userMember = await this.prisma.teamMember.findFirst({
         where: { userId: dto.opponentId, status: 'ACCEPTED' },
-        include: { team: true },
+        include: { team: { include: { university: true } } },
       });
       if (userMember) {
         opponentTeam = userMember.team;
@@ -99,6 +129,7 @@ export class ScrimsService {
     if (!opponentTeam) {
       opponentTeam = await this.prisma.team.findFirst({
         where: { captainId: dto.opponentId },
+        include: { university: true },
       });
     }
 
@@ -112,11 +143,33 @@ export class ScrimsService {
       );
     }
 
+    let currentReqs: Array<{ teamId: string; teamName: string; universityName?: string }> = [];
+    if (scrim.notes && scrim.notes.includes('__SCRIM_REQS__')) {
+      try {
+        const jsonStr = scrim.notes.split('__SCRIM_REQS__')[1];
+        currentReqs = JSON.parse(jsonStr);
+      } catch {
+        currentReqs = [];
+      }
+    }
+
+    if (!currentReqs.some((r) => r.teamId === opponentTeam.id)) {
+      currentReqs.push({
+        teamId: opponentTeam.id,
+        teamName: opponentTeam.name,
+        universityName: opponentTeam.university?.name,
+      });
+    }
+
+    const baseNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
+    const updatedNotes = `${baseNotes}__SCRIM_REQS__${JSON.stringify(currentReqs)}`;
+
     return this.prisma.scrim.update({
       where: { id: scrimId },
       data: {
         opponentId: opponentTeam.id,
         status: ScrimStatus.PENDING,
+        notes: updatedNotes,
       },
       include: {
         team: { include: { university: true } },
@@ -132,11 +185,13 @@ export class ScrimsService {
     }
 
     const opponentIdToSet = selectedOpponentId || scrim.opponentId;
+    const baseNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
 
     return this.prisma.scrim.update({
       where: { id: scrimId },
       data: {
         status: ScrimStatus.CONFIRMED,
+        notes: baseNotes,
         ...(opponentIdToSet ? { opponentId: opponentIdToSet } : {}),
       },
       include: {
