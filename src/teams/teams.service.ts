@@ -273,4 +273,45 @@ export class TeamsService {
       data: { status: newStatus },
     });
   }
+
+  async leaveTeam(teamId: string, userId: string) {
+    const team = await this.prisma.team.findUnique({
+      where: { id: teamId },
+      include: { members: true },
+    });
+
+    if (!team) {
+      throw new NotFoundException('Team not found.');
+    }
+
+    const member = await this.prisma.teamMember.findFirst({
+      where: { teamId, userId },
+    });
+
+    if (!member) {
+      throw new NotFoundException('You are not a member of this team.');
+    }
+
+    await this.prisma.teamMember.delete({
+      where: { id: member.id },
+    });
+
+    if (team.captainId === userId) {
+      const remainingMembers = team.members.filter(
+        (m) => m.id !== member.id && m.status === TeamMemberStatus.ACCEPTED,
+      );
+      if (remainingMembers.length > 0) {
+        await this.prisma.team.update({
+          where: { id: teamId },
+          data: { captainId: remainingMembers[0].userId },
+        });
+      } else {
+        await this.prisma.team.delete({
+          where: { id: teamId },
+        });
+      }
+    }
+
+    return { success: true, message: 'Successfully left the team roster.' };
+  }
 }
