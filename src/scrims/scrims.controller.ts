@@ -66,4 +66,21 @@ export class ScrimsController {
   deleteScrim(@Param('id') id: string) {
     return this.scrimsService.deleteScrim(id);
   }
+
+  @Public()
+  @Get(':id/chat')
+  @ApiOperation({ summary: 'Get War Room chat messages' })
+  getScrimChat(@Param('id') id: string) {
+    return this.scrimsService.getScrimChat(id);
+  }
+
+  @Public()
+  @Post(':id/chat')
+  @ApiOperation({ summary: 'Send a message in the War Room chat' })
+  sendScrimChat(
+    @Param('id') id: string,
+    @Body() dto: { senderName: string; teamName: string; text: string },
+  ) {
+    return this.scrimsService.sendScrimChat(id, dto);
+  }
 }

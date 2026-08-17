@@ -236,4 +236,24 @@ export class ScrimsService {
       where: { id: scrimId },
     });
   }
+
+  private scrimChats = new Map<string, Array<{ id: string; senderName: string; teamName: string; text: string; timestamp: string }>>();
+
+  getScrimChat(scrimId: string) {
+    return this.scrimChats.get(scrimId) || [];
+  }
+
+  sendScrimChat(scrimId: string, dto: { senderName: string; teamName: string; text: string }) {
+    const list = this.scrimChats.get(scrimId) || [];
+    const msg = {
+      id: `msg-${Date.now()}-${Math.random()}`,
+      senderName: dto.senderName || 'Anonymous',
+      teamName: dto.teamName || 'Squad Member',
+      text: dto.text,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    list.push(msg);
+    this.scrimChats.set(scrimId, list);
+    return list;
+  }
 }
