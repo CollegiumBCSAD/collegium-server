@@ -78,8 +78,8 @@ export class ScrimsService {
       throw new NotFoundException('Scrim offer not found.');
     }
 
-    if (scrim.status !== ScrimStatus.OPEN) {
-      throw new BadRequestException('This scrim is no longer available.');
+    if (scrim.status === ScrimStatus.CONFIRMED) {
+      throw new BadRequestException('This scrim match has already been booked by an opponent.');
     }
 
     let opponentTeam = await this.prisma.team.findUnique({
@@ -125,15 +125,20 @@ export class ScrimsService {
     });
   }
 
-  async confirmScrim(scrimId: string) {
+  async confirmScrim(scrimId: string, selectedOpponentId?: string) {
     const scrim = await this.prisma.scrim.findUnique({ where: { id: scrimId } });
     if (!scrim) {
       throw new NotFoundException('Scrim offer not found.');
     }
 
+    const opponentIdToSet = selectedOpponentId || scrim.opponentId;
+
     return this.prisma.scrim.update({
       where: { id: scrimId },
-      data: { status: ScrimStatus.CONFIRMED },
+      data: {
+        status: ScrimStatus.CONFIRMED,
+        ...(opponentIdToSet ? { opponentId: opponentIdToSet } : {}),
+      },
       include: {
         team: { include: { university: true } },
         opponent: { include: { university: true } },

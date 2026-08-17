@@ -46,8 +46,11 @@ export class ScrimsController {
   @Public()
   @Post(':id/confirm')
   @ApiOperation({ summary: 'Confirm a pending scrim booking request' })
-  confirmScrim(@Param('id') id: string) {
-    return this.scrimsService.confirmScrim(id);
+  confirmScrim(
+    @Param('id') id: string,
+    @Body('opponentId') selectedOpponentId?: string,
+  ) {
+    return this.scrimsService.confirmScrim(id, selectedOpponentId);
   }
 
   @Public()
