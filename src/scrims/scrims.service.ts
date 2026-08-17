@@ -54,7 +54,7 @@ export class ScrimsService {
     return this.prisma.scrim.findMany({
       where: {
         ...(gameTitle ? { gameTitle } : {}),
-        ...(status ? { status } : { status: ScrimStatus.OPEN }),
+        ...(status ? { status } : { status: { in: [ScrimStatus.OPEN, ScrimStatus.CONFIRMED] } }),
       },
       orderBy: { scheduledAt: 'asc' },
       include: {
