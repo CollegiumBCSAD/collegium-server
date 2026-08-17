@@ -12,12 +12,21 @@ export class ScrimsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createScrim(dto: CreateScrimDto) {
-    const team = await this.prisma.team.findUnique({
+    let team = await this.prisma.team.findUnique({
       where: { id: dto.teamId },
     });
 
     if (!team) {
-      throw new NotFoundException('Host team not found.');
+      team = await this.prisma.team.findFirst({
+        where: { gameTitle: dto.gameTitle },
+      });
+      if (!team) {
+        team = await this.prisma.team.findFirst();
+      }
+    }
+
+    if (!team) {
+      throw new BadRequestException('No host team found in database. Please create a team first.');
     }
 
     return this.prisma.scrim.create({
