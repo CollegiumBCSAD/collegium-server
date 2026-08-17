@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -47,5 +48,12 @@ export class ScrimsController {
   @ApiOperation({ summary: 'Cancel a scrim offer' })
   cancelScrim(@Param('id') id: string) {
     return this.scrimsService.cancelScrim(id);
+  }
+
+  @Public()
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a scrim offer permanently' })
+  deleteScrim(@Param('id') id: string) {
+    return this.scrimsService.deleteScrim(id);
   }
 }

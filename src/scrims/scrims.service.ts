@@ -160,4 +160,10 @@ export class ScrimsService {
       },
     });
   }
+
+  async deleteScrim(scrimId: string) {
+    return this.prisma.scrim.delete({
+      where: { id: scrimId },
+    });
+  }
 }
