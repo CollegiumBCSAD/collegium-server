@@ -18,20 +18,17 @@ export class ScrimsService {
 
     if (!team) {
       team = await this.prisma.team.findFirst({
-        where: { gameTitle: dto.gameTitle },
+        where: { captainId: dto.teamId, gameTitle: dto.gameTitle },
       });
-      if (!team) {
-        team = await this.prisma.team.findFirst();
-      }
     }
 
     if (!team) {
-      throw new BadRequestException('No host team found in database. Please create a team first.');
+      throw new BadRequestException('Host team not found in database. Please register your squad first.');
     }
 
     return this.prisma.scrim.create({
       data: {
-        teamId: dto.teamId,
+        teamId: team.id,
         gameTitle: dto.gameTitle,
         scheduledAt: new Date(dto.scheduledAt),
         format: dto.format,
@@ -96,16 +93,13 @@ export class ScrimsService {
       });
       if (userMember) {
         opponentTeam = userMember.team;
-      } else {
-        opponentTeam = await this.prisma.team.findFirst({
-          where: { id: { not: scrim.teamId }, gameTitle: scrim.gameTitle },
-        });
-        if (!opponentTeam) {
-          opponentTeam = await this.prisma.team.findFirst({
-            where: { id: { not: scrim.teamId } },
-          });
-        }
       }
+    }
+
+    if (!opponentTeam) {
+      opponentTeam = await this.prisma.team.findFirst({
+        where: { captainId: dto.opponentId },
+      });
     }
 
     if (!opponentTeam) {
