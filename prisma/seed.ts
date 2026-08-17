@@ -68,12 +68,12 @@ async function main() {
     });
     universityByShort.set(uni.short, { id: university.id, short: uni.short });
 
-    const coach = await prisma.user.create({
+    const captain = await prisma.user.create({
       data: {
-        email: `coach@${uni.domain}`,
+        email: `captain@${uni.domain}`,
         password: hashedPassword,
-        displayName: `${uni.short} Head Coach`,
-        role: Role.COACH,
+        displayName: `${uni.short} Team Captain`,
+        role: Role.ATHLETE,
         universityId: university.id,
         status: 'ACTIVE',
       },
@@ -99,13 +99,13 @@ async function main() {
         name: `${uni.short} Valorant`,
         gameTitle: GameTitle.VALORANT,
         universityId: university.id,
-        captainId: coach.id,
+        captainId: captain.id,
         inviteCode: inviteCode(),
         members: {
           create: [
             {
-              userId: coach.id,
-              gameHandle: `${uni.short}Coach#PH1`,
+              userId: captain.id,
+              gameHandle: `${uni.short}Captain#PH1`,
               preferredRole: ROSTER_ROLES[0],
               status: 'ACCEPTED',
             },
@@ -119,7 +119,7 @@ async function main() {
         },
       },
     });
-    teamByShort.set(uni.short, { id: team.id, captainId: coach.id });
+    teamByShort.set(uni.short, { id: team.id, captainId: captain.id });
   }
 
   await prisma.user.create({
