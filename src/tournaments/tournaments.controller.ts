@@ -12,6 +12,13 @@ import { TournamentsService } from './tournaments.service';
 export class TournamentsController {
   constructor(private readonly tournamentsService: TournamentsService) {}
 
+  // GET /tournaments — Anyone logged in can list all tournaments
+  @Get()
+  @ApiOperation({ summary: 'List all tournaments' })
+  findAll() {
+    return this.tournamentsService.findAll();
+  }
+
   // POST /tournaments — Admin or Coach creates a tournament
   @Post()
   @Roles(Role.ADMIN, Role.COACH)
