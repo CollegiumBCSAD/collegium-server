@@ -243,16 +243,18 @@ export class ScrimsService {
     return this.scrimChats.get(scrimId) || [];
   }
 
-  sendScrimChat(scrimId: string, dto: { senderName: string; teamName: string; text: string }) {
+  sendScrimChat(scrimId: string, dto: { id?: string; senderName: string; teamName: string; text: string; timestamp?: string }) {
     const list = this.scrimChats.get(scrimId) || [];
     const msg = {
-      id: `msg-${Date.now()}-${Math.random()}`,
+      id: dto.id || `msg-${Date.now()}-${Math.random()}`,
       senderName: dto.senderName || 'Anonymous',
       teamName: dto.teamName || 'Squad Member',
       text: dto.text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: dto.timestamp || new Date().toISOString(),
     };
-    list.push(msg);
+    if (!list.some((m) => m.id === msg.id)) {
+      list.push(msg);
+    }
     this.scrimChats.set(scrimId, list);
     return list;
   }

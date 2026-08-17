@@ -79,7 +79,7 @@ export class ScrimsController {
   @ApiOperation({ summary: 'Send a message in the War Room chat' })
   sendScrimChat(
     @Param('id') id: string,
-    @Body() dto: { senderName: string; teamName: string; text: string },
+    @Body() dto: { id?: string; senderName: string; teamName: string; text: string; timestamp?: string },
   ) {
     return this.scrimsService.sendScrimChat(id, dto);
   }
