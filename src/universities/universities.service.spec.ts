@@ -57,6 +57,7 @@ describe('UniversitiesService', () => {
 
       expect(mockPrismaService.university.findUnique).toHaveBeenCalledWith({
         where: { id: '1' },
+        include: { gameRatings: true },
       });
       expect(result).toEqual(mockUniversity);
     });

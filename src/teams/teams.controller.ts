@@ -19,6 +19,16 @@ export class TeamsController {
     return this.teamsService.createTeam(dto);
   }
 
+  @Get()
+  async getTeams() {
+    return this.teamsService.findAll();
+  }
+
+  @Get(':id')
+  async getTeamById(@Param('id') id: string) {
+    return this.teamsService.findOne(id);
+  }
+
   @Get('invite/:code')
   async getByInviteCode(@Param('code') code: string) {
     return this.teamsService.getTeamByInviteCode(code);

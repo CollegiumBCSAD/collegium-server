@@ -12,17 +12,24 @@ import { TournamentsService } from './tournaments.service';
 export class TournamentsController {
   constructor(private readonly tournamentsService: TournamentsService) {}
 
-  // POST /tournaments — Admin or Coach creates a tournament
+  // GET /tournaments — Anyone logged in can list all tournaments
+  @Get()
+  @ApiOperation({ summary: 'List all tournaments' })
+  findAll() {
+    return this.tournamentsService.findAll();
+  }
+
+  // POST /tournaments — Admin or Athlete creates a tournament
   @Post()
-  @Roles(Role.ADMIN, Role.COACH)
-  @ApiOperation({ summary: 'Create a new tournament (Admin or Coach only)' })
+  @Roles(Role.ADMIN, Role.ATHLETE)
+  @ApiOperation({ summary: 'Create a new tournament (Admin or Athlete only)' })
   create(@Body() createTournamentDto: CreateTournamentDto) {
     return this.tournamentsService.create(createTournamentDto);
   }
 
-  // POST /tournaments/:id/register — Coach registers their university
+  // POST /tournaments/:id/register — Athlete registers their university
   @Post(':id/register')
-  @Roles(Role.COACH)
+  @Roles(Role.ATHLETE)
   @ApiOperation({ summary: 'Register your university for a tournament' })
   register(
     @Param('id') tournamentId: string,
@@ -35,9 +42,9 @@ export class TournamentsController {
     );
   }
 
-  // POST /tournaments/:id/bracket — Admin or Coach generates the bracket
+  // POST /tournaments/:id/bracket — Admin or Athlete generates the bracket
   @Post(':id/bracket')
-  @Roles(Role.ADMIN, Role.COACH)
+  @Roles(Role.ADMIN, Role.ATHLETE)
   @ApiOperation({ summary: 'Generate the tournament bracket' })
   generateBracket(@Param('id') tournamentId: string) {
     return this.tournamentsService.generateBracket(tournamentId);
@@ -50,9 +57,9 @@ export class TournamentsController {
     return this.tournamentsService.getBracket(tournamentId);
   }
 
-  // POST /tournaments/:id/matches/:mid/confirm — Coach submits the Riot match ID
+  // POST /tournaments/:id/matches/:mid/confirm — Athlete submits the Riot match ID
   @Post(':id/matches/:mid/confirm')
-  @Roles(Role.COACH)
+  @Roles(Role.ATHLETE)
   @ApiOperation({
     summary: 'Confirm a match result by submitting the Riot match ID',
   })

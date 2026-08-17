@@ -8,7 +8,6 @@ datasource db {
 
 enum Role {
   ATHLETE
-  COACH
   NON_ATHLETE
   ADMIN
 }

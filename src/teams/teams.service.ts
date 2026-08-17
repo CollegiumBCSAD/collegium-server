@@ -18,6 +18,51 @@ export class TeamsService {
     return randomBytes(4).toString('hex').toLowerCase();
   }
 
+  async findAll() {
+    return this.prisma.team.findMany({
+      include: {
+        university: true,
+        members: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                displayName: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async findOne(id: string) {
+    const team = await this.prisma.team.findUnique({
+      where: { id },
+      include: {
+        university: true,
+        members: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                displayName: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!team) {
+      throw new NotFoundException('Team not found.');
+    }
+
+    return team;
+  }
+
   async createTeam(dto: CreateTeamDto) {
     const university = await this.prisma.university.findUnique({
       where: { id: dto.universityId },

@@ -18,6 +18,17 @@ export class TournamentsService {
     private glickoService: GlickoService,
   ) {}
 
+  // FIND ALL — List all tournaments
+  async findAll() {
+    return this.prisma.tournament.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        universities: true,
+        matches: true,
+      },
+    });
+  }
+
   // CREATE — Create a new tournament
   async create(createTournamentDto: CreateTournamentDto) {
     return this.prisma.tournament.create({
