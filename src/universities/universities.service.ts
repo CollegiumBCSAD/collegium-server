@@ -48,6 +48,7 @@ export class UniversitiesService {
   async findOne(id: string) {
     const university = await this.prisma.university.findUnique({
       where: { id },
+      include: { gameRatings: true },
     });
 
     if (!university) {
