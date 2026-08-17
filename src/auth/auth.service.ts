@@ -218,7 +218,7 @@ export class AuthService {
     }
 
     if (stored.expiresAt < new Date()) {
-      await this.prisma.refreshToken.delete({ where: { tokenHash } });
+      await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
       throw new UnauthorizedException(
         'Refresh token has expired. Please log in again.',
       );
@@ -228,7 +228,7 @@ export class AuthService {
       throw new ForbiddenException('Account is not active.');
     }
 
-    await this.prisma.refreshToken.delete({ where: { tokenHash } });
+    await this.prisma.refreshToken.deleteMany({ where: { tokenHash } });
 
     return this.generateTokens(
       stored.user.id,

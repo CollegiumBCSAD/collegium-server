@@ -85,7 +85,34 @@ export class ScrimsService {
       throw new BadRequestException('This scrim is no longer available.');
     }
 
-    if (scrim.teamId === dto.opponentId) {
+    let opponentTeam = await this.prisma.team.findUnique({
+      where: { id: dto.opponentId },
+    });
+
+    if (!opponentTeam) {
+      const userMember = await this.prisma.teamMember.findFirst({
+        where: { userId: dto.opponentId, status: 'ACCEPTED' },
+        include: { team: true },
+      });
+      if (userMember) {
+        opponentTeam = userMember.team;
+      } else {
+        opponentTeam = await this.prisma.team.findFirst({
+          where: { id: { not: scrim.teamId }, gameTitle: scrim.gameTitle },
+        });
+        if (!opponentTeam) {
+          opponentTeam = await this.prisma.team.findFirst({
+            where: { id: { not: scrim.teamId } },
+          });
+        }
+      }
+    }
+
+    if (!opponentTeam) {
+      throw new BadRequestException('Opponent team not found.');
+    }
+
+    if (scrim.teamId === opponentTeam.id) {
       throw new BadRequestException(
         'A team cannot accept its own scrim offer.',
       );
@@ -94,7 +121,7 @@ export class ScrimsService {
     return this.prisma.scrim.update({
       where: { id: scrimId },
       data: {
-        opponentId: dto.opponentId,
+        opponentId: opponentTeam.id,
         status: ScrimStatus.CONFIRMED,
       },
       include: {
