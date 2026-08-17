@@ -54,7 +54,7 @@ export class ScrimsService {
     return this.prisma.scrim.findMany({
       where: {
         ...(gameTitle ? { gameTitle } : {}),
-        ...(status ? { status } : { status: { in: [ScrimStatus.OPEN, ScrimStatus.CONFIRMED] } }),
+        ...(status ? { status } : { status: { in: [ScrimStatus.OPEN, ScrimStatus.CONFIRMED, ScrimStatus.CANCELLED] } }),
       },
       orderBy: { scheduledAt: 'asc' },
       include: {
@@ -132,9 +132,32 @@ export class ScrimsService {
   }
 
   async cancelScrim(scrimId: string) {
+    const scrim = await this.prisma.scrim.findUnique({ where: { id: scrimId } });
+    if (!scrim) {
+      throw new NotFoundException('Scrim offer not found.');
+    }
+
+    if (scrim.status === ScrimStatus.CONFIRMED) {
+      return this.prisma.scrim.update({
+        where: { id: scrimId },
+        data: {
+          status: ScrimStatus.OPEN,
+          opponentId: null,
+        },
+        include: {
+          team: { include: { university: true } },
+          opponent: { include: { university: true } },
+        },
+      });
+    }
+
     return this.prisma.scrim.update({
       where: { id: scrimId },
       data: { status: ScrimStatus.CANCELLED },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+      },
     });
   }
 }
