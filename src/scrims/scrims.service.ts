@@ -122,8 +122,24 @@ export class ScrimsService {
       where: { id: scrimId },
       data: {
         opponentId: opponentTeam.id,
-        status: ScrimStatus.CONFIRMED,
+        status: ScrimStatus.PENDING,
       },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+      },
+    });
+  }
+
+  async confirmScrim(scrimId: string) {
+    const scrim = await this.prisma.scrim.findUnique({ where: { id: scrimId } });
+    if (!scrim) {
+      throw new NotFoundException('Scrim offer not found.');
+    }
+
+    return this.prisma.scrim.update({
+      where: { id: scrimId },
+      data: { status: ScrimStatus.CONFIRMED },
       include: {
         team: { include: { university: true } },
         opponent: { include: { university: true } },
@@ -137,7 +153,7 @@ export class ScrimsService {
       throw new NotFoundException('Scrim offer not found.');
     }
 
-    if (scrim.status === ScrimStatus.CONFIRMED) {
+    if (scrim.status === ScrimStatus.CONFIRMED || scrim.status === ScrimStatus.PENDING) {
       return this.prisma.scrim.update({
         where: { id: scrimId },
         data: {

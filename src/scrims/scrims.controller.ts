@@ -44,6 +44,13 @@ export class ScrimsController {
   }
 
   @Public()
+  @Post(':id/confirm')
+  @ApiOperation({ summary: 'Confirm a pending scrim booking request' })
+  confirmScrim(@Param('id') id: string) {
+    return this.scrimsService.confirmScrim(id);
+  }
+
+  @Public()
   @Patch(':id/cancel')
   @ApiOperation({ summary: 'Cancel a scrim offer' })
   cancelScrim(@Param('id') id: string) {
