@@ -80,6 +80,8 @@ new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: tru
 - `category` is `SCRIM | TEAM`; `type` is one of the `NotificationType` enum values in `schema.prisma` — add a new enum value (plus a migration) before inventing a new event type, don't overload an existing one.
 - Pass `refId` whenever the same event could plausibly fire twice for the same user (e.g. a scrim id, or `team.id:member.id`) — `NotificationsService.create` uses `(userId, type, refId)` to no-op instead of creating a duplicate.
 - Compose the full human-readable `title`/`message` server-side at creation time. The frontend renders them verbatim — it does not reconstruct sentences from raw fields, so don't send fragments expecting the client to assemble them.
+- Delivery is push, not poll: `NotificationsService` calls `RealtimeGateway.emitToUser(userId, event, payload)` (`src/realtime/`) on every mutation (`notification:new`, `notification:updated`, `notification:all-read`, `notification:cleared`). REST (`GET /notifications`) is only for initial hydration and reconnect catch-up — don't reintroduce client-side polling for something the gateway already pushes.
+- `RealtimeGateway` is generic app-wide realtime infra, not notifications-specific — it authenticates a socket with the same `access_token` cookie as REST (verified manually in `handleConnection`, since Socket.IO's handshake doesn't go through Nest's HTTP guards) and joins it to room `user:<id>`. Any future feature that needs to push something to a specific user (e.g. real scrim chat instead of the current polling-based one) should import `RealtimeModule` and call `emitToUser` rather than building a second gateway.
 
 ---
 
