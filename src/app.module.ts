@@ -8,6 +8,7 @@ import { UniversitiesModule } from './universities/universities.module';
 import { TournamentsModule } from './tournaments/tournaments.module';
 import { TeamsModule } from './teams/teams.module';
 import { ScrimsModule } from './scrims/scrims.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import KeyvRedis from '@keyv/redis';
 
@@ -31,6 +32,7 @@ import KeyvRedis from '@keyv/redis';
     TournamentsModule,
     TeamsModule,
     ScrimsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [],
