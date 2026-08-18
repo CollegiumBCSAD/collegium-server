@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationCategory, NotificationType } from '@prisma/client';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 interface CreateNotificationInput {
   userId: string;
@@ -14,7 +15,10 @@ interface CreateNotificationInput {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtimeGateway: RealtimeGateway,
+  ) {}
 
   async create(input: CreateNotificationInput) {
     if (input.refId) {
@@ -28,7 +32,9 @@ export class NotificationsService {
       if (existing) return existing;
     }
 
-    return this.prisma.notification.create({ data: input });
+    const notification = await this.prisma.notification.create({ data: input });
+    this.realtimeGateway.emitToUser(notification.userId, 'notification:new', notification);
+    return notification;
   }
 
   async findAllForUser(userId: string) {
@@ -52,10 +58,13 @@ export class NotificationsService {
       throw new ForbiddenException('You cannot modify another user\'s notification.');
     }
 
-    return this.prisma.notification.update({
+    const updated = await this.prisma.notification.update({
       where: { id },
       data: { read: true },
     });
+
+    this.realtimeGateway.emitToUser(userId, 'notification:updated', updated);
+    return updated;
   }
 
   async markAllAsRead(userId: string) {
@@ -63,11 +72,13 @@ export class NotificationsService {
       where: { userId, read: false },
       data: { read: true },
     });
+    this.realtimeGateway.emitToUser(userId, 'notification:all-read', { userId });
     return { success: true };
   }
 
   async clearAll(userId: string) {
     await this.prisma.notification.deleteMany({ where: { userId } });
+    this.realtimeGateway.emitToUser(userId, 'notification:cleared', { userId });
     return { success: true };
   }
 }

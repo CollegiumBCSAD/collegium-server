@@ -2,6 +2,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from './notifications.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { NotificationCategory, NotificationType } from '@prisma/client';
 
 const mockPrismaService = {
@@ -16,6 +17,10 @@ const mockPrismaService = {
   },
 };
 
+const mockRealtimeGateway = {
+  emitToUser: jest.fn(),
+};
+
 describe('NotificationsService', () => {
   let service: NotificationsService;
 
@@ -24,6 +29,7 @@ describe('NotificationsService', () => {
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: RealtimeGateway, useValue: mockRealtimeGateway },
       ],
     }).compile();
 
@@ -52,6 +58,11 @@ describe('NotificationsService', () => {
       const result = await service.create(input);
 
       expect(mockPrismaService.notification.create).toHaveBeenCalledWith({ data: input });
+      expect(mockRealtimeGateway.emitToUser).toHaveBeenCalledWith(
+        'user-1',
+        'notification:new',
+        { id: 'notif-1', ...input },
+      );
       expect(result).toEqual({ id: 'notif-1', ...input });
     });
 
@@ -62,6 +73,7 @@ describe('NotificationsService', () => {
       const result = await service.create(input);
 
       expect(mockPrismaService.notification.create).not.toHaveBeenCalled();
+      expect(mockRealtimeGateway.emitToUser).not.toHaveBeenCalled();
       expect(result).toEqual(existing);
     });
   });
@@ -84,6 +96,11 @@ describe('NotificationsService', () => {
         where: { id: 'notif-1' },
         data: { read: true },
       });
+      expect(mockRealtimeGateway.emitToUser).toHaveBeenCalledWith(
+        'user-1',
+        'notification:updated',
+        { id: 'notif-1', userId: 'user-1', read: true },
+      );
       expect(result.read).toBe(true);
     });
 
