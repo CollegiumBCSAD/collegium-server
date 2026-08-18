@@ -6,7 +6,11 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationCategory, NotificationType, TeamMemberStatus } from '@prisma/client';
+import {
+  NotificationCategory,
+  NotificationType,
+  TeamMemberStatus,
+} from '@prisma/client';
 import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
 import { randomBytes } from 'crypto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -295,7 +299,9 @@ export class TeamsService {
       type: accept
         ? NotificationType.TEAM_REQUEST_ACCEPTED
         : NotificationType.TEAM_REQUEST_DECLINED,
-      title: accept ? '✅ Roster Request Accepted' : '🚫 Roster Request Declined',
+      title: accept
+        ? '✅ Roster Request Accepted'
+        : '🚫 Roster Request Declined',
       message: accept
         ? `Your request to join ${team.name} was accepted!`
         : `Your request to join ${team.name} was declined.`,

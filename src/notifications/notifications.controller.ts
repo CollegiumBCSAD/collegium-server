@@ -9,7 +9,7 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List the current user\'s notifications' })
+  @ApiOperation({ summary: "List the current user's notifications" })
   findAll(@Request() req: { user: { id: string } }) {
     return this.notificationsService.findAllForUser(req.user.id);
   }
@@ -24,13 +24,15 @@ export class NotificationsController {
   }
 
   @Patch('read-all')
-  @ApiOperation({ summary: 'Mark all of the current user\'s notifications as read' })
+  @ApiOperation({
+    summary: "Mark all of the current user's notifications as read",
+  })
   markAllAsRead(@Request() req: { user: { id: string } }) {
     return this.notificationsService.markAllAsRead(req.user.id);
   }
 
   @Delete()
-  @ApiOperation({ summary: 'Clear all of the current user\'s notifications' })
+  @ApiOperation({ summary: "Clear all of the current user's notifications" })
   clearAll(@Request() req: { user: { id: string } }) {
     return this.notificationsService.clearAll(req.user.id);
   }

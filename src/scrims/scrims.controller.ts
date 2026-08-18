@@ -11,7 +11,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ScrimsService } from './scrims.service';
-import { CreateScrimDto, AcceptScrimDto, SendScrimChatDto } from './dto/scrims.dto';
+import {
+  CreateScrimDto,
+  AcceptScrimDto,
+  SendScrimChatDto,
+} from './dto/scrims.dto';
 import { GameTitle, ScrimStatus, User } from '@prisma/client';
 import { Public } from '../auth/decorators/public.decorator';
 
@@ -23,10 +27,7 @@ export class ScrimsController {
 
   @Post()
   @ApiOperation({ summary: 'Post a new scrim offer (Requires authentication)' })
-  createScrim(
-    @Req() req: { user?: User },
-    @Body() dto: CreateScrimDto,
-  ) {
+  createScrim(@Req() req: { user?: User }, @Body() dto: CreateScrimDto) {
     return this.scrimsService.createScrim(dto, req.user);
   }
 
@@ -41,7 +42,9 @@ export class ScrimsController {
   }
 
   @Post(':id/accept')
-  @ApiOperation({ summary: 'Accept an open scrim offer (Requires authentication)' })
+  @ApiOperation({
+    summary: 'Accept an open scrim offer (Requires authentication)',
+  })
   acceptScrim(
     @Req() req: { user?: User },
     @Param('id') id: string,
@@ -51,7 +54,10 @@ export class ScrimsController {
   }
 
   @Post(':id/confirm')
-  @ApiOperation({ summary: 'Confirm a pending scrim booking request (Requires authentication)' })
+  @ApiOperation({
+    summary:
+      'Confirm a pending scrim booking request (Requires authentication)',
+  })
   confirmScrim(
     @Param('id') id: string,
     @Body('opponentId') selectedOpponentId?: string,
@@ -66,7 +72,9 @@ export class ScrimsController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a scrim offer permanently (Requires authentication)' })
+  @ApiOperation({
+    summary: 'Delete a scrim offer permanently (Requires authentication)',
+  })
   deleteScrim(@Param('id') id: string) {
     return this.scrimsService.deleteScrim(id);
   }
@@ -79,7 +87,9 @@ export class ScrimsController {
   }
 
   @Post(':id/chat')
-  @ApiOperation({ summary: 'Send a message in the War Room chat (Requires authentication)' })
+  @ApiOperation({
+    summary: 'Send a message in the War Room chat (Requires authentication)',
+  })
   sendScrimChat(
     @Req() req: { user: User },
     @Param('id') id: string,

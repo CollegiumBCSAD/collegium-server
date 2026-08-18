@@ -53,11 +53,16 @@ describe('NotificationsService', () => {
 
     it('creates a notification when no duplicate exists', async () => {
       mockPrismaService.notification.findFirst.mockResolvedValue(null);
-      mockPrismaService.notification.create.mockResolvedValue({ id: 'notif-1', ...input });
+      mockPrismaService.notification.create.mockResolvedValue({
+        id: 'notif-1',
+        ...input,
+      });
 
       const result = await service.create(input);
 
-      expect(mockPrismaService.notification.create).toHaveBeenCalledWith({ data: input });
+      expect(mockPrismaService.notification.create).toHaveBeenCalledWith({
+        data: input,
+      });
       expect(mockRealtimeGateway.emitToUser).toHaveBeenCalledWith(
         'user-1',
         'notification:new',

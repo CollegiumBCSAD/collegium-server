@@ -63,10 +63,7 @@ export class TeamsController {
   }
 
   @Post(':id/leave')
-  async leaveTeam(
-    @Param('id') teamId: string,
-    @Body('userId') userId: string,
-  ) {
+  async leaveTeam(@Param('id') teamId: string, @Body('userId') userId: string) {
     return this.teamsService.leaveTeam(teamId, userId);
   }
 }

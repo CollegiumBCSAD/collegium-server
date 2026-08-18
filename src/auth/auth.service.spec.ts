@@ -196,7 +196,9 @@ describe('AuthService', () => {
       mockPrismaService.refreshToken.findUnique.mockResolvedValue(
         mockStoredToken,
       );
-      mockPrismaService.refreshToken.delete.mockResolvedValue({});
+      mockPrismaService.refreshToken.deleteMany.mockResolvedValue({
+        count: 1,
+      });
       mockPrismaService.refreshToken.create.mockResolvedValue({});
       mockJwtService.sign.mockReturnValue('new_access_token');
 
@@ -204,7 +206,9 @@ describe('AuthService', () => {
 
       expect(result).toHaveProperty('access_token', 'new_access_token');
       expect(result).toHaveProperty('refresh_token');
-      expect(mockPrismaService.refreshToken.delete).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.refreshToken.deleteMany).toHaveBeenCalledTimes(
+        1,
+      );
       expect(mockPrismaService.refreshToken.create).toHaveBeenCalledTimes(1);
     });
 
@@ -222,11 +226,15 @@ describe('AuthService', () => {
         user: { status: AccountStatus.ACTIVE },
       };
       mockPrismaService.refreshToken.findUnique.mockResolvedValue(expiredToken);
-      mockPrismaService.refreshToken.delete.mockResolvedValue({});
+      mockPrismaService.refreshToken.deleteMany.mockResolvedValue({
+        count: 1,
+      });
       await expect(service.refreshTokens('expired_token')).rejects.toThrow(
         UnauthorizedException,
       );
-      expect(mockPrismaService.refreshToken.delete).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.refreshToken.deleteMany).toHaveBeenCalledTimes(
+        1,
+      );
     });
   });
 

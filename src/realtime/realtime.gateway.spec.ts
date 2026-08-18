@@ -127,7 +127,9 @@ describe('RealtimeGateway', () => {
         teamId: 'team-host',
         opponentId: 'team-opp',
       });
-      mockPrismaService.teamMember.findFirst.mockResolvedValue({ id: 'member-1' });
+      mockPrismaService.teamMember.findFirst.mockResolvedValue({
+        id: 'member-1',
+      });
 
       await gateway.handleJoinScrim(socket as never, 'scrim-1');
 
@@ -177,10 +179,10 @@ describe('RealtimeGateway', () => {
   });
 
   describe('handleLeaveScrim()', () => {
-    it('leaves the scrim room', () => {
+    it('leaves the scrim room', async () => {
       const socket = createMockSocket();
 
-      gateway.handleLeaveScrim(socket as never, 'scrim-1');
+      await gateway.handleLeaveScrim(socket as never, 'scrim-1');
 
       expect(socket.leave).toHaveBeenCalledWith('scrim:scrim-1');
     });

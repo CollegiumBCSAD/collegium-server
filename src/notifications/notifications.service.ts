@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationCategory, NotificationType } from '@prisma/client';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -33,7 +37,11 @@ export class NotificationsService {
     }
 
     const notification = await this.prisma.notification.create({ data: input });
-    this.realtimeGateway.emitToUser(notification.userId, 'notification:new', notification);
+    this.realtimeGateway.emitToUser(
+      notification.userId,
+      'notification:new',
+      notification,
+    );
     return notification;
   }
 
@@ -55,7 +63,9 @@ export class NotificationsService {
     }
 
     if (notification.userId !== userId) {
-      throw new ForbiddenException('You cannot modify another user\'s notification.');
+      throw new ForbiddenException(
+        "You cannot modify another user's notification.",
+      );
     }
 
     const updated = await this.prisma.notification.update({
@@ -72,7 +82,9 @@ export class NotificationsService {
       where: { userId, read: false },
       data: { read: true },
     });
-    this.realtimeGateway.emitToUser(userId, 'notification:all-read', { userId });
+    this.realtimeGateway.emitToUser(userId, 'notification:all-read', {
+      userId,
+    });
     return { success: true };
   }
 

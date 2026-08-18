@@ -17,6 +17,12 @@ import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 
+export interface PendingScrimRequest {
+  teamId: string;
+  teamName: string;
+  universityName?: string;
+}
+
 @Injectable()
 export class ScrimsService {
   constructor(
@@ -41,14 +47,19 @@ export class ScrimsService {
         where: {
           OR: [
             { captainId: user.id, gameTitle: dto.gameTitle },
-            { members: { some: { userId: user.id, status: 'ACCEPTED' } }, gameTitle: dto.gameTitle },
+            {
+              members: { some: { userId: user.id, status: 'ACCEPTED' } },
+              gameTitle: dto.gameTitle,
+            },
           ],
         },
       });
     }
 
     if (!team) {
-      throw new BadRequestException('Host team not found in database. Please register your squad first.');
+      throw new BadRequestException(
+        'Host team not found in database. Please register your squad first.',
+      );
     }
 
     return this.prisma.scrim.create({
@@ -76,7 +87,18 @@ export class ScrimsService {
     const list = await this.prisma.scrim.findMany({
       where: {
         ...(gameTitle ? { gameTitle } : {}),
-        ...(status ? { status } : { status: { in: [ScrimStatus.OPEN, ScrimStatus.PENDING, ScrimStatus.CONFIRMED, ScrimStatus.CANCELLED] } }),
+        ...(status
+          ? { status }
+          : {
+              status: {
+                in: [
+                  ScrimStatus.OPEN,
+                  ScrimStatus.PENDING,
+                  ScrimStatus.CONFIRMED,
+                  ScrimStatus.CANCELLED,
+                ],
+              },
+            }),
       },
       orderBy: { scheduledAt: 'asc' },
       include: {
@@ -94,25 +116,29 @@ export class ScrimsService {
     });
 
     return list.map((scrim) => {
-      let pendingRequests: Array<{ teamId: string; teamName: string; universityName?: string }> = [];
+      let pendingRequests: PendingScrimRequest[] = [];
       if (scrim.notes && scrim.notes.includes('__SCRIM_REQS__')) {
         try {
           const jsonStr = scrim.notes.split('__SCRIM_REQS__')[1];
-          pendingRequests = JSON.parse(jsonStr);
+          pendingRequests = JSON.parse(jsonStr) as PendingScrimRequest[];
         } catch {
           pendingRequests = [];
         }
       }
 
       if (pendingRequests.length === 0 && scrim.opponent) {
-        pendingRequests = [{
-          teamId: scrim.opponent.id,
-          teamName: scrim.opponent.name,
-          universityName: scrim.opponent.university?.name,
-        }];
+        pendingRequests = [
+          {
+            teamId: scrim.opponent.id,
+            teamName: scrim.opponent.name,
+            universityName: scrim.opponent.university?.name,
+          },
+        ];
       }
 
-      const cleanedNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
+      const cleanedNotes = scrim.notes
+        ? scrim.notes.split('__SCRIM_REQS__')[0]
+        : '';
 
       return {
         ...scrim,
@@ -133,7 +159,9 @@ export class ScrimsService {
     }
 
     if (scrim.status === ScrimStatus.CONFIRMED) {
-      throw new BadRequestException('This scrim match has already been booked by an opponent.');
+      throw new BadRequestException(
+        'This scrim match has already been booked by an opponent.',
+      );
     }
 
     let opponentTeam = await this.prisma.team.findUnique({
@@ -168,11 +196,11 @@ export class ScrimsService {
       );
     }
 
-    let currentReqs: Array<{ teamId: string; teamName: string; universityName?: string }> = [];
+    let currentReqs: PendingScrimRequest[] = [];
     if (scrim.notes && scrim.notes.includes('__SCRIM_REQS__')) {
       try {
         const jsonStr = scrim.notes.split('__SCRIM_REQS__')[1];
-        currentReqs = JSON.parse(jsonStr);
+        currentReqs = JSON.parse(jsonStr) as PendingScrimRequest[];
       } catch {
         currentReqs = [];
       }
@@ -216,7 +244,9 @@ export class ScrimsService {
   }
 
   async confirmScrim(scrimId: string, selectedOpponentId?: string) {
-    const scrim = await this.prisma.scrim.findUnique({ where: { id: scrimId } });
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+    });
     if (!scrim) {
       throw new NotFoundException('Scrim offer not found.');
     }
@@ -264,7 +294,10 @@ export class ScrimsService {
       throw new NotFoundException('Scrim offer not found.');
     }
 
-    if (scrim.status === ScrimStatus.CONFIRMED || scrim.status === ScrimStatus.PENDING) {
+    if (
+      scrim.status === ScrimStatus.CONFIRMED ||
+      scrim.status === ScrimStatus.PENDING
+    ) {
       const wasConfirmed = scrim.status === ScrimStatus.CONFIRMED;
 
       const updated = await this.prisma.scrim.update({
@@ -286,7 +319,9 @@ export class ScrimsService {
           type: wasConfirmed
             ? NotificationType.SCRIM_UNBOOKED
             : NotificationType.SCRIM_REQUEST_DECLINED,
-          title: wasConfirmed ? '⚠️ Scrim Match Cancelled' : '✕ Scrim Request Declined',
+          title: wasConfirmed
+            ? '⚠️ Scrim Match Cancelled'
+            : '✕ Scrim Request Declined',
           message: wasConfirmed
             ? `${scrim.team.name} unbooked the scheduled practice match.`
             : `${scrim.team.name} declined your practice match request. The offer is re-opened on the board.`,
@@ -349,7 +384,8 @@ export class ScrimsService {
       );
     }
 
-    const team = membership.teamId === scrim.teamId ? scrim.team : scrim.opponent;
+    const team =
+      membership.teamId === scrim.teamId ? scrim.team : scrim.opponent;
     return team!;
   }
 

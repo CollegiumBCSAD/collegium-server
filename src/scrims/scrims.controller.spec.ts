@@ -3,7 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { ScrimsController } from './scrims.controller';
 import { ScrimsService } from './scrims.service';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
-import { GameTitle, ScrimStatus, User } from '@prisma/client';
+import { GameTitle, User } from '@prisma/client';
 
 describe('ScrimsController', () => {
   let controller: ScrimsController;
@@ -41,6 +41,9 @@ describe('ScrimsController', () => {
     expect(controller).toBeDefined();
   });
 
+  /* eslint-disable @typescript-eslint/unbound-method -- reflector.get() only reads
+     Reflect metadata off the function reference; binding would strip it and break
+     these assertions (SetMetadata attaches metadata to the original function object). */
   describe('Authentication Restrictions (Public vs Protected routes)', () => {
     it('should NOT mark createScrim as @Public()', () => {
       const isPublic = reflector.get<boolean>(
@@ -105,6 +108,7 @@ describe('ScrimsController', () => {
       );
       expect(isPublic).toBe(true);
     });
+    /* eslint-enable @typescript-eslint/unbound-method */
   });
 
   describe('createScrim', () => {
@@ -116,7 +120,10 @@ describe('ScrimsController', () => {
         scheduledAt: new Date().toISOString(),
         format: 'BO3',
       };
-      (service.createScrim as jest.Mock).mockResolvedValue({ id: 'scrim-1', ...dto });
+      (service.createScrim as jest.Mock).mockResolvedValue({
+        id: 'scrim-1',
+        ...dto,
+      });
 
       const result = await controller.createScrim({ user: mockUser }, dto);
 

@@ -15,7 +15,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 import { AccountStatus, TeamMemberStatus } from '@prisma/client';
 
-function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+function parseCookies(
+  cookieHeader: string | undefined,
+): Record<string, string> {
   const result: Record<string, string> = {};
   if (!cookieHeader) return result;
 
@@ -43,6 +45,18 @@ function scrimRoom(scrimId: string): string {
   return `scrim:${scrimId}`;
 }
 
+interface SocketData {
+  userId?: string;
+}
+
+function getSocketUserId(client: Socket): string | undefined {
+  return (client.data as SocketData).userId;
+}
+
+function setSocketUserId(client: Socket, userId: string): void {
+  (client.data as SocketData).userId = userId;
+}
+
 @WebSocketGateway({
   cors: {
     origin: [
@@ -53,7 +67,9 @@ function scrimRoom(scrimId: string): string {
     credentials: true,
   },
 })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -66,7 +82,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   ) {}
 
   private async authenticate(client: Socket): Promise<string | null> {
-    const existingUserId = client.data?.userId as string | undefined;
+    const existingUserId = getSocketUserId(client);
     if (existingUserId) return existingUserId;
 
     const cookies = parseCookies(client.handshake.headers.cookie);
@@ -84,7 +100,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
       if (!user || user.status !== AccountStatus.ACTIVE) return null;
 
-      client.data.userId = user.id;
+      setSocketUserId(client, user.id);
       return user.id;
     } catch {
       return null;
@@ -103,7 +119,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   handleDisconnect(client: Socket) {
-    const userId = client.data?.userId as string | undefined;
+    const userId = getSocketUserId(client);
     if (userId) {
       this.logger.verbose(`socket disconnected for user ${userId}`);
     }
@@ -113,7 +129,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(userRoom(userId)).emit(event, payload);
   }
 
-  private async isScrimParticipant(userId: string, scrimId: string): Promise<boolean> {
+  private async isScrimParticipant(
+    userId: string,
+    scrimId: string,
+  ): Promise<boolean> {
     const scrim = await this.prisma.scrim.findUnique({
       where: { id: scrimId },
       select: { teamId: true, opponentId: true },
@@ -152,12 +171,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage('scrim:leave')
-  handleLeaveScrim(
+  async handleLeaveScrim(
     @ConnectedSocket() client: Socket,
     @MessageBody() scrimId: string,
   ) {
     if (!scrimId) return;
-    client.leave(scrimRoom(scrimId));
+    await client.leave(scrimRoom(scrimId));
   }
 
   emitToScrim(scrimId: string, event: string, payload: unknown) {
