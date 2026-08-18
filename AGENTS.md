@@ -10,8 +10,8 @@ All developers and automated agents must inspect the surrounding codebase conven
 
 Before implementing features, modifying modules, or adding endpoints:
 1. **Inspect existing conventions**: Look at how existing modules are structured (`src/teams/`, `src/tournaments/`, `src/auth/`) before adding a new one.
-2. **Reuse established services**: Use `PrismaService` (`src/prisma/prisma.service.ts`) for all database access, `GlickoService` (`src/universities/glicko.service.ts`) for rating math. Do not duplicate query logic or reimplement algorithms that already exist.
-3. **One module per domain**: `auth`, `teams`, `tournaments`, `scrims`, `universities`, `match-logging`. A new domain concept gets a new module, not a folder bolted onto an existing one.
+2. **Reuse established services**: Use `PrismaService` (`src/prisma/prisma.service.ts`) for all database access, `GlickoService` (`src/universities/glicko.service.ts`) for rating math, `NotificationsService` (`src/notifications/notifications.service.ts`) to create a persisted notification for a user. Do not duplicate query logic or reimplement algorithms that already exist.
+3. **One module per domain**: `auth`, `teams`, `tournaments`, `scrims`, `universities`, `match-logging`, `notifications`. A new domain concept gets a new module, not a folder bolted onto an existing one.
 
 ---
 
@@ -74,7 +74,16 @@ new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: tru
 
 ---
 
-## 6. API Design Conventions
+## 6. Notifications
+
+- `NotificationsModule` (`src/notifications/`) is the single source of truth for in-app notifications — there is no client-side derivation anymore. If an event should notify a user, call `NotificationsService.create({ userId, category, type, title, message, link, refId })` from the service that owns that event (see `TeamsService.joinTeam`/`handleJoinRequest`, `ScrimsService.acceptScrim`/`confirmScrim`/`cancelScrim`).
+- `category` is `SCRIM | TEAM`; `type` is one of the `NotificationType` enum values in `schema.prisma` — add a new enum value (plus a migration) before inventing a new event type, don't overload an existing one.
+- Pass `refId` whenever the same event could plausibly fire twice for the same user (e.g. a scrim id, or `team.id:member.id`) — `NotificationsService.create` uses `(userId, type, refId)` to no-op instead of creating a duplicate.
+- Compose the full human-readable `title`/`message` server-side at creation time. The frontend renders them verbatim — it does not reconstruct sentences from raw fields, so don't send fragments expecting the client to assemble them.
+
+---
+
+## 7. API Design Conventions
 
 - REST resource routing: `GET /resource`, `GET /resource/:id`, `POST /resource`, `PATCH /resource/:id/...`. Match the existing shape in `TeamsController`/`TournamentsController` for new routes on the same resource.
 - Every route gets `@ApiOperation({ summary: '...' })`; every controller gets `@ApiTags('...')`. Swagger (`/api-docs`) is the standard way to exercise admin-only or hard-to-reach routes (e.g. `POST /tournaments/:id/matches/:mid/close`) — keep it accurate.
@@ -83,7 +92,7 @@ new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: tru
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 - Unit tests are colocated as `<name>.spec.ts` next to the file they test, using Jest + `@nestjs/testing`.
 - Services are tested with `PrismaService` mocked (see `universities.service.spec.ts` for the pattern: a `mockPrismaService` object with `jest.fn()` per method used).
@@ -92,17 +101,17 @@ new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: tru
 
 ---
 
-## 8. Git Commit and Branching Discipline
+## 9. Git Commit and Branching Discipline
 
 Full detail in `CONTRIBUTING.md` — the summary:
-- Conventional Commits, **with scope**: `<type>(<scope>): <description>` (e.g. `fix(tournaments): add missing GET /tournaments list endpoint`). Common scopes: `auth`, `users`, `ranking`, `scrims`, `tournaments`, `teams`, `universities`, `prisma`, `redis`, `ci`.
+- Conventional Commits, **with scope**: `<type>(<scope>): <description>` (e.g. `fix(tournaments): add missing GET /tournaments list endpoint`). Common scopes: `auth`, `users`, `ranking`, `scrims`, `tournaments`, `teams`, `universities`, `notifications`, `prisma`, `redis`, `ci`.
 - Branch from `dev`: `feat/<description>`, `fix/<description>`, `docs/<description>`, `refactor/<description>`, `chore/<description>`.
 - Commit every fix, feature, or chore step-by-step — don't bundle unrelated changes into one commit.
 - Imperative mood, no capital first letter unless a proper noun, no trailing period.
 
 ---
 
-## 9. Verification and Quality Assurance
+## 10. Verification and Quality Assurance
 
 Before considering any task done:
 - [ ] `nix develop --command pnpm test` — all suites pass.
