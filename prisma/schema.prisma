@@ -56,6 +56,21 @@ enum ScrimStatus {
   CANCELLED
 }
 
+enum NotificationCategory {
+  SCRIM
+  TEAM
+}
+
+enum NotificationType {
+  SCRIM_REQUEST_RECEIVED
+  SCRIM_REQUEST_ACCEPTED
+  SCRIM_REQUEST_DECLINED
+  SCRIM_UNBOOKED
+  TEAM_JOIN_REQUEST
+  TEAM_REQUEST_ACCEPTED
+  TEAM_REQUEST_DECLINED
+}
+
 model University {
   id            String                 @id @default(uuid())
   name          String
@@ -100,6 +115,7 @@ model User {
   teamMemberships TeamMember[]
   playerStats    PlayerStat[]
   refreshTokens  RefreshToken[]
+  notifications  Notification[]
   createdAt      DateTime       @default(now())
 }
 
@@ -211,6 +227,22 @@ model PlayerStat {
   dataSource                  DataSource          @default(API)
   createdAt                   DateTime            @default(now())
   valorantStat                ValorantPlayerStat?
+}
+
+model Notification {
+  id        String               @id @default(uuid())
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  NotificationCategory
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  refId     String?
+  read      Boolean              @default(false)
+  createdAt DateTime             @default(now())
+
+  @@index([userId, read])
 }
 
 model ValorantPlayerStat {
