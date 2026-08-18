@@ -4,14 +4,18 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { GameTitle, ScrimStatus } from '@prisma/client';
+import { GameTitle, NotificationCategory, NotificationType, ScrimStatus, User } from '@prisma/client';
 import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ScrimsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
-  async createScrim(dto: CreateScrimDto) {
+  async createScrim(dto: CreateScrimDto, user?: User) {
     let team = await this.prisma.team.findUnique({
       where: { id: dto.teamId },
     });
@@ -19,6 +23,17 @@ export class ScrimsService {
     if (!team) {
       team = await this.prisma.team.findFirst({
         where: { captainId: dto.teamId, gameTitle: dto.gameTitle },
+      });
+    }
+
+    if (!team && user?.id) {
+      team = await this.prisma.team.findFirst({
+        where: {
+          OR: [
+            { captainId: user.id, gameTitle: dto.gameTitle },
+            { members: { some: { userId: user.id, status: 'ACCEPTED' } }, gameTitle: dto.gameTitle },
+          ],
+        },
       });
     }
 
@@ -164,7 +179,7 @@ export class ScrimsService {
     const baseNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
     const updatedNotes = `${baseNotes}__SCRIM_REQS__${JSON.stringify(currentReqs)}`;
 
-    return this.prisma.scrim.update({
+    const updated = await this.prisma.scrim.update({
       where: { id: scrimId },
       data: {
         opponentId: opponentTeam.id,
@@ -176,6 +191,18 @@ export class ScrimsService {
         opponent: { include: { university: true } },
       },
     });
+
+    await this.notificationsService.create({
+      userId: updated.team.captainId,
+      category: NotificationCategory.SCRIM,
+      type: NotificationType.SCRIM_REQUEST_RECEIVED,
+      title: '⏳ Incoming Scrim Request!',
+      message: `${opponentTeam.name} requested to book your scrim offer!`,
+      link: '/scrims',
+      refId: `${updated.id}:${opponentTeam.id}`,
+    });
+
+    return updated;
   }
 
   async confirmScrim(scrimId: string, selectedOpponentId?: string) {
@@ -187,7 +214,7 @@ export class ScrimsService {
     const opponentIdToSet = selectedOpponentId || scrim.opponentId;
     const baseNotes = scrim.notes ? scrim.notes.split('__SCRIM_REQS__')[0] : '';
 
-    return this.prisma.scrim.update({
+    const updated = await this.prisma.scrim.update({
       where: { id: scrimId },
       data: {
         status: ScrimStatus.CONFIRMED,
@@ -199,16 +226,38 @@ export class ScrimsService {
         opponent: { include: { university: true } },
       },
     });
+
+    if (updated.opponent) {
+      await this.notificationsService.create({
+        userId: updated.opponent.captainId,
+        category: NotificationCategory.SCRIM,
+        type: NotificationType.SCRIM_REQUEST_ACCEPTED,
+        title: '🎉 Scrim Match Request Accepted!',
+        message: `${updated.team.name} accepted your practice match request!`,
+        link: '/scrims',
+        refId: updated.id,
+      });
+    }
+
+    return updated;
   }
 
   async cancelScrim(scrimId: string) {
-    const scrim = await this.prisma.scrim.findUnique({ where: { id: scrimId } });
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+      },
+    });
     if (!scrim) {
       throw new NotFoundException('Scrim offer not found.');
     }
 
     if (scrim.status === ScrimStatus.CONFIRMED || scrim.status === ScrimStatus.PENDING) {
-      return this.prisma.scrim.update({
+      const wasConfirmed = scrim.status === ScrimStatus.CONFIRMED;
+
+      const updated = await this.prisma.scrim.update({
         where: { id: scrimId },
         data: {
           status: ScrimStatus.OPEN,
@@ -219,6 +268,24 @@ export class ScrimsService {
           opponent: { include: { university: true } },
         },
       });
+
+      if (scrim.opponent) {
+        await this.notificationsService.create({
+          userId: scrim.opponent.captainId,
+          category: NotificationCategory.SCRIM,
+          type: wasConfirmed
+            ? NotificationType.SCRIM_UNBOOKED
+            : NotificationType.SCRIM_REQUEST_DECLINED,
+          title: wasConfirmed ? '⚠️ Scrim Match Cancelled' : '✕ Scrim Request Declined',
+          message: wasConfirmed
+            ? `${scrim.team.name} unbooked the scheduled practice match.`
+            : `${scrim.team.name} declined your practice match request. The offer is re-opened on the board.`,
+          link: '/scrims',
+          refId: `${scrim.id}:${scrim.status}`,
+        });
+      }
+
+      return updated;
     }
 
     return this.prisma.scrim.update({
