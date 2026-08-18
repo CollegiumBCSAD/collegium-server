@@ -28,6 +28,7 @@ const mockPrismaService = {
   },
   user: {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
   },
@@ -244,6 +245,30 @@ describe('AuthService', () => {
       await service.logout('some_raw_token');
       expect(mockPrismaService.refreshToken.deleteMany).toHaveBeenCalledTimes(
         1,
+      );
+    });
+  });
+
+  describe('listUsers()', () => {
+    it('should return all users ordered by createdAt desc', async () => {
+      const mockUsers = [
+        {
+          id: 'user-2',
+          email: 'newer@admu.edu.ph',
+          displayName: 'Newer',
+          role: Role.ATHLETE,
+          status: AccountStatus.PENDING,
+          createdAt: new Date(),
+          university: { id: 'uni-1', name: 'Ateneo de Manila University' },
+        },
+      ];
+      mockPrismaService.user.findMany.mockResolvedValue(mockUsers);
+
+      const result = await service.listUsers();
+
+      expect(result).toEqual(mockUsers);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { createdAt: 'desc' } }),
       );
     });
   });

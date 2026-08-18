@@ -205,6 +205,26 @@ export class AuthService {
     return user;
   }
 
+  async listUsers() {
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        role: true,
+        status: true,
+        createdAt: true,
+        university: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async refreshTokens(incomingToken: string) {
     const tokenHash = this.hashToken(incomingToken);
 

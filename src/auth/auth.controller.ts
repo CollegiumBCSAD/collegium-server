@@ -189,6 +189,15 @@ export class AuthController {
     return this.authService.getMe(userId);
   }
 
+  @Get('users')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'List all users (Admin only)' })
+  listUsers() {
+    return this.authService.listUsers();
+  }
+
   @Patch('users/:id/status')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
