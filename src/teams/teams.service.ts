@@ -6,13 +6,17 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { TeamMemberStatus } from '@prisma/client';
+import { NotificationCategory, NotificationType, TeamMemberStatus } from '@prisma/client';
 import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
 import { randomBytes } from 'crypto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class TeamsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private generateInviteCode(): string {
     return randomBytes(4).toString('hex').toLowerCase();
@@ -210,6 +214,18 @@ export class TeamsService {
       },
     });
 
+    if (memberStatus === TeamMemberStatus.PENDING) {
+      await this.notificationsService.create({
+        userId: team.captainId,
+        category: NotificationCategory.TEAM,
+        type: NotificationType.TEAM_JOIN_REQUEST,
+        title: '👥 New Roster Join Request',
+        message: `${user?.displayName || 'An athlete'} requested to join ${team.name}.`,
+        link: '/dashboard',
+        refId: member.id,
+      });
+    }
+
     return {
       member,
       status: memberStatus,
@@ -268,10 +284,26 @@ export class TeamsService {
       ? TeamMemberStatus.ACCEPTED
       : TeamMemberStatus.DECLINED;
 
-    return this.prisma.teamMember.update({
+    const updatedMember = await this.prisma.teamMember.update({
       where: { id: requestId },
       data: { status: newStatus },
     });
+
+    await this.notificationsService.create({
+      userId: updatedMember.userId,
+      category: NotificationCategory.TEAM,
+      type: accept
+        ? NotificationType.TEAM_REQUEST_ACCEPTED
+        : NotificationType.TEAM_REQUEST_DECLINED,
+      title: accept ? '✅ Roster Request Accepted' : '🚫 Roster Request Declined',
+      message: accept
+        ? `Your request to join ${team.name} was accepted!`
+        : `Your request to join ${team.name} was declined.`,
+      link: '/dashboard',
+      refId: updatedMember.id,
+    });
+
+    return updatedMember;
   }
 
   async leaveTeam(teamId: string, userId: string) {
