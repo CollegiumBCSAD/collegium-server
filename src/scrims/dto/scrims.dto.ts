@@ -40,3 +40,9 @@ export class AcceptScrimDto {
   @IsNotEmpty()
   opponentId!: string;
 }
+
+export class SendScrimChatDto {
+  @IsString()
+  @IsNotEmpty()
+  text!: string;
+}

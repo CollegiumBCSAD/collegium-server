@@ -17,6 +17,12 @@ const mockPrismaService = {
   user: {
     findUnique: jest.fn(),
   },
+  scrim: {
+    findUnique: jest.fn(),
+  },
+  teamMember: {
+    findFirst: jest.fn(),
+  },
 };
 
 function createMockSocket(cookie?: string) {
@@ -24,6 +30,7 @@ function createMockSocket(cookie?: string) {
     handshake: { headers: { cookie } },
     data: {} as Record<string, unknown>,
     join: jest.fn().mockResolvedValue(undefined),
+    leave: jest.fn(),
     disconnect: jest.fn(),
   };
 }
@@ -109,6 +116,86 @@ describe('RealtimeGateway', () => {
 
       expect(to).toHaveBeenCalledWith('user:user-1');
       expect(emit).toHaveBeenCalledWith('notification:new', { id: 'notif-1' });
+    });
+  });
+
+  describe('handleJoinScrim()', () => {
+    it('joins the scrim room when the user is an accepted participant', async () => {
+      const socket = createMockSocket();
+      socket.data.userId = 'user-1';
+      mockPrismaService.scrim.findUnique.mockResolvedValue({
+        teamId: 'team-host',
+        opponentId: 'team-opp',
+      });
+      mockPrismaService.teamMember.findFirst.mockResolvedValue({ id: 'member-1' });
+
+      await gateway.handleJoinScrim(socket as never, 'scrim-1');
+
+      expect(mockPrismaService.teamMember.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          teamId: { in: ['team-host', 'team-opp'] },
+          status: 'ACCEPTED',
+        },
+      });
+      expect(socket.join).toHaveBeenCalledWith('scrim:scrim-1');
+    });
+
+    it('does not join when the user is not a participant', async () => {
+      const socket = createMockSocket();
+      socket.data.userId = 'user-1';
+      mockPrismaService.scrim.findUnique.mockResolvedValue({
+        teamId: 'team-host',
+        opponentId: 'team-opp',
+      });
+      mockPrismaService.teamMember.findFirst.mockResolvedValue(null);
+
+      await gateway.handleJoinScrim(socket as never, 'scrim-1');
+
+      expect(socket.join).not.toHaveBeenCalled();
+    });
+
+    it('does not join when the socket has no authenticated userId', async () => {
+      const socket = createMockSocket();
+
+      await gateway.handleJoinScrim(socket as never, 'scrim-1');
+
+      expect(mockPrismaService.scrim.findUnique).not.toHaveBeenCalled();
+      expect(socket.join).not.toHaveBeenCalled();
+    });
+
+    it('does not join when the scrim does not exist', async () => {
+      const socket = createMockSocket();
+      socket.data.userId = 'user-1';
+      mockPrismaService.scrim.findUnique.mockResolvedValue(null);
+
+      await gateway.handleJoinScrim(socket as never, 'scrim-1');
+
+      expect(mockPrismaService.teamMember.findFirst).not.toHaveBeenCalled();
+      expect(socket.join).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleLeaveScrim()', () => {
+    it('leaves the scrim room', () => {
+      const socket = createMockSocket();
+
+      gateway.handleLeaveScrim(socket as never, 'scrim-1');
+
+      expect(socket.leave).toHaveBeenCalledWith('scrim:scrim-1');
+    });
+  });
+
+  describe('emitToScrim()', () => {
+    it('emits the event to the scrim-scoped room', () => {
+      const emit = jest.fn();
+      const to = jest.fn().mockReturnValue({ emit });
+      gateway.server = { to } as never;
+
+      gateway.emitToScrim('scrim-1', 'scrim:message', { id: 'msg-1' });
+
+      expect(to).toHaveBeenCalledWith('scrim:scrim-1');
+      expect(emit).toHaveBeenCalledWith('scrim:message', { id: 'msg-1' });
     });
   });
 });

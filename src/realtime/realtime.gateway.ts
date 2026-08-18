@@ -2,15 +2,18 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
-import { AccountStatus } from '@prisma/client';
+import { AccountStatus, TeamMemberStatus } from '@prisma/client';
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
   const result: Record<string, string> = {};
@@ -36,6 +39,10 @@ function userRoom(userId: string): string {
   return `user:${userId}`;
 }
 
+function scrimRoom(scrimId: string): string {
+  return `scrim:${scrimId}`;
+}
+
 @WebSocketGateway({
   cors: {
     origin: [
@@ -58,14 +65,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly prisma: PrismaService,
   ) {}
 
-  async handleConnection(client: Socket) {
+  private async authenticate(client: Socket): Promise<string | null> {
+    const existingUserId = client.data?.userId as string | undefined;
+    if (existingUserId) return existingUserId;
+
     const cookies = parseCookies(client.handshake.headers.cookie);
     const token = cookies['access_token'];
-
-    if (!token) {
-      client.disconnect(true);
-      return;
-    }
+    if (!token) return null;
 
     try {
       const payload = await this.jwtService.verifyAsync<JwtPayload>(token, {
@@ -76,16 +82,24 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         where: { id: payload.sub },
       });
 
-      if (!user || user.status !== AccountStatus.ACTIVE) {
-        client.disconnect(true);
-        return;
-      }
+      if (!user || user.status !== AccountStatus.ACTIVE) return null;
 
       client.data.userId = user.id;
-      await client.join(userRoom(user.id));
+      return user.id;
     } catch {
-      client.disconnect(true);
+      return null;
     }
+  }
+
+  async handleConnection(client: Socket) {
+    const userId = await this.authenticate(client);
+
+    if (!userId) {
+      client.disconnect(true);
+      return;
+    }
+
+    await client.join(userRoom(userId));
   }
 
   handleDisconnect(client: Socket) {
@@ -97,5 +111,56 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   emitToUser(userId: string, event: string, payload: unknown) {
     this.server.to(userRoom(userId)).emit(event, payload);
+  }
+
+  private async isScrimParticipant(userId: string, scrimId: string): Promise<boolean> {
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      select: { teamId: true, opponentId: true },
+    });
+
+    if (!scrim) return false;
+
+    const teamIds = [scrim.teamId, scrim.opponentId].filter(
+      (id): id is string => Boolean(id),
+    );
+    if (teamIds.length === 0) return false;
+
+    const membership = await this.prisma.teamMember.findFirst({
+      where: {
+        userId,
+        teamId: { in: teamIds },
+        status: TeamMemberStatus.ACCEPTED,
+      },
+    });
+
+    return Boolean(membership);
+  }
+
+  @SubscribeMessage('scrim:join')
+  async handleJoinScrim(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() scrimId: string,
+  ) {
+    const userId = await this.authenticate(client);
+    if (!userId || !scrimId) return;
+
+    const isParticipant = await this.isScrimParticipant(userId, scrimId);
+    if (!isParticipant) return;
+
+    await client.join(scrimRoom(scrimId));
+  }
+
+  @SubscribeMessage('scrim:leave')
+  handleLeaveScrim(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() scrimId: string,
+  ) {
+    if (!scrimId) return;
+    client.leave(scrimRoom(scrimId));
+  }
+
+  emitToScrim(scrimId: string, event: string, payload: unknown) {
+    this.server.to(scrimRoom(scrimId)).emit(event, payload);
   }
 }

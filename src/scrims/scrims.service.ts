@@ -1,18 +1,28 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { GameTitle, NotificationCategory, NotificationType, ScrimStatus, User } from '@prisma/client';
+import {
+  GameTitle,
+  NotificationCategory,
+  NotificationType,
+  ScrimStatus,
+  TeamMemberStatus,
+  User,
+} from '@prisma/client';
 import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 @Injectable()
 export class ScrimsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly realtimeGateway: RealtimeGateway,
   ) {}
 
   async createScrim(dto: CreateScrimDto, user?: User) {
@@ -304,25 +314,62 @@ export class ScrimsService {
     });
   }
 
-  private scrimChats = new Map<string, Array<{ id: string; senderName: string; teamName: string; text: string; timestamp: string }>>();
-
-  getScrimChat(scrimId: string) {
-    return this.scrimChats.get(scrimId) || [];
+  async getScrimChat(scrimId: string) {
+    return this.prisma.scrimChatMessage.findMany({
+      where: { scrimId },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
-  sendScrimChat(scrimId: string, dto: { id?: string; senderName: string; teamName: string; text: string; timestamp?: string }) {
-    const list = this.scrimChats.get(scrimId) || [];
-    const msg = {
-      id: dto.id || `msg-${Date.now()}-${Math.random()}`,
-      senderName: dto.senderName || 'Anonymous',
-      teamName: dto.teamName || 'Squad Member',
-      text: dto.text,
-      timestamp: dto.timestamp || new Date().toISOString(),
-    };
-    if (!list.some((m) => m.id === msg.id)) {
-      list.push(msg);
+  private async resolveChatParticipant(scrimId: string, userId: string) {
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      include: { team: true, opponent: true },
+    });
+
+    if (!scrim) {
+      throw new NotFoundException('Scrim offer not found.');
     }
-    this.scrimChats.set(scrimId, list);
-    return list;
+
+    const teamIds = [scrim.teamId, scrim.opponentId].filter(
+      (id): id is string => Boolean(id),
+    );
+
+    const membership = await this.prisma.teamMember.findFirst({
+      where: {
+        userId,
+        teamId: { in: teamIds },
+        status: TeamMemberStatus.ACCEPTED,
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException(
+        'Only participants of this scrim can post in the War Room chat.',
+      );
+    }
+
+    const team = membership.teamId === scrim.teamId ? scrim.team : scrim.opponent;
+    return team!;
+  }
+
+  async sendScrimChat(scrimId: string, userId: string, text: string) {
+    const [team, sender] = await Promise.all([
+      this.resolveChatParticipant(scrimId, userId),
+      this.prisma.user.findUnique({ where: { id: userId } }),
+    ]);
+
+    const message = await this.prisma.scrimChatMessage.create({
+      data: {
+        scrimId,
+        senderId: userId,
+        senderName: sender?.displayName || 'Athlete',
+        teamName: team.name,
+        text,
+      },
+    });
+
+    this.realtimeGateway.emitToScrim(scrimId, 'scrim:message', message);
+    return message;
   }
 }

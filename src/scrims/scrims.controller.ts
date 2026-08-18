@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ScrimsService } from './scrims.service';
-import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
+import { CreateScrimDto, AcceptScrimDto, SendScrimChatDto } from './dto/scrims.dto';
 import { GameTitle, ScrimStatus, User } from '@prisma/client';
 import { Public } from '../auth/decorators/public.decorator';
 
@@ -81,9 +81,10 @@ export class ScrimsController {
   @Post(':id/chat')
   @ApiOperation({ summary: 'Send a message in the War Room chat (Requires authentication)' })
   sendScrimChat(
+    @Req() req: { user: User },
     @Param('id') id: string,
-    @Body() dto: { id?: string; senderName: string; teamName: string; text: string; timestamp?: string },
+    @Body() dto: SendScrimChatDto,
   ) {
-    return this.scrimsService.sendScrimChat(id, dto);
+    return this.scrimsService.sendScrimChat(id, req.user.id, dto.text);
   }
 }
