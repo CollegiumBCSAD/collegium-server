@@ -7,13 +7,16 @@ import {
   Param,
   Query,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { TeamsService } from './teams.service';
 import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('teams')
 export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}
 
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE)
   @Post()
   async createTeam(@Body() dto: CreateTeamDto) {
     return this.teamsService.createTeam(dto);
@@ -34,6 +37,7 @@ export class TeamsController {
     return this.teamsService.getTeamByInviteCode(code);
   }
 
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE)
   @Post(':id/join')
   async joinTeam(@Param('id') teamId: string, @Body() dto: JoinTeamDto) {
     return this.teamsService.joinTeam(teamId, dto);

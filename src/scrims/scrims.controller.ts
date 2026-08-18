@@ -16,8 +16,9 @@ import {
   AcceptScrimDto,
   SendScrimChatDto,
 } from './dto/scrims.dto';
-import { GameTitle, ScrimStatus, User } from '@prisma/client';
+import { GameTitle, Role, ScrimStatus, User } from '@prisma/client';
 import { Public } from '../auth/decorators/public.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @ApiTags('Scrims')
 @ApiBearerAuth()
@@ -25,6 +26,7 @@ import { Public } from '../auth/decorators/public.decorator';
 export class ScrimsController {
   constructor(private readonly scrimsService: ScrimsService) {}
 
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE)
   @Post()
   @ApiOperation({ summary: 'Post a new scrim offer (Requires authentication)' })
   createScrim(@Req() req: { user?: User }, @Body() dto: CreateScrimDto) {
@@ -41,6 +43,7 @@ export class ScrimsController {
     return this.scrimsService.getScrims(gameTitle, status);
   }
 
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE)
   @Post(':id/accept')
   @ApiOperation({
     summary: 'Accept an open scrim offer (Requires authentication)',
