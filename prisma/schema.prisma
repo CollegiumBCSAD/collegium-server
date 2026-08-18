@@ -116,6 +116,7 @@ model User {
   playerStats    PlayerStat[]
   refreshTokens  RefreshToken[]
   notifications  Notification[]
+  scrimChatMessages ScrimChatMessage[]
   createdAt      DateTime       @default(now())
 }
 
@@ -171,6 +172,21 @@ model Scrim {
   opponentId    String?
   opponent      Team?       @relation("ScrimOpponent", fields: [opponentId], references: [id])
   createdAt     DateTime    @default(now())
+  chatMessages  ScrimChatMessage[]
+}
+
+model ScrimChatMessage {
+  id         String   @id @default(uuid())
+  scrimId    String
+  scrim      Scrim    @relation(fields: [scrimId], references: [id], onDelete: Cascade)
+  senderId   String
+  sender     User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderName String
+  teamName   String
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([scrimId, createdAt])
 }
 
 model Match {
