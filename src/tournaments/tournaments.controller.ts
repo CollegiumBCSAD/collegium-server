@@ -10,7 +10,7 @@ import { TournamentsService } from './tournaments.service';
 @ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('tournaments')
 export class TournamentsController {
-  constructor(private readonly tournamentsService: TournamentsService) {}
+  constructor(private readonly tournamentsService: TournamentsService) { }
 
   // GET /tournaments — Anyone logged in can list all tournaments
   @Get()
