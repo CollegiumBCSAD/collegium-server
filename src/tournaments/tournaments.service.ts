@@ -69,6 +69,19 @@ export class TournamentsService {
     }));
   }
 
+  // FIND MINE — Organizer's own tournaments, any status (including
+  // PENDING_APPROVAL/REJECTED, which findAll() hides from the public list)
+  async findMine(organizerId: string) {
+    return this.prisma.tournament.findMany({
+      where: { organizerId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        universities: true,
+        matches: true,
+      },
+    });
+  }
+
   // CREATE — Create a new tournament.
   // Organizer-created tournaments require Admin approval before going live.
   // An optional cover image is uploaded to Cloudinary server-side.
@@ -89,6 +102,9 @@ export class TournamentsService {
     return this.prisma.tournament.create({
       data: {
         name: createTournamentDto.name,
+        bracketFormat: createTournamentDto.bracketFormat,
+        teamQuota: createTournamentDto.teamQuota,
+        rules: createTournamentDto.rules,
         image: uploaded?.url,
         imagePublicId: uploaded?.publicId,
         organizerId: isOrganizer ? user.id : undefined,

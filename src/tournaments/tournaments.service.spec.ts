@@ -88,6 +88,9 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
           image: undefined,
           imagePublicId: undefined,
           organizerId: undefined,
@@ -109,6 +112,38 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
+          image: undefined,
+          imagePublicId: undefined,
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+
+    it('persists bracketFormat, teamQuota, and rules when provided', async () => {
+      const dto = {
+        name: 'Community Cup',
+        bracketFormat: 'Single Elimination',
+        teamQuota: 8,
+        rules: 'Best of 3 semis, Bo5 finals',
+      };
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(dto, { id: 'organizer-1', role: Role.ORGANIZER });
+
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          bracketFormat: dto.bracketFormat,
+          teamQuota: dto.teamQuota,
+          rules: dto.rules,
           image: undefined,
           imagePublicId: undefined,
           organizerId: 'organizer-1',
@@ -143,6 +178,9 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
           image: 'https://res.cloudinary.com/x/img.png',
           imagePublicId: 'collegium/tournaments/abc123',
           organizerId: 'organizer-1',
@@ -181,6 +219,21 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { status: TournamentStatus.PENDING_APPROVAL },
+        }),
+      );
+    });
+  });
+
+  // findMine()
+  describe('findMine()', () => {
+    it('returns tournaments for the given organizer regardless of status', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findMine('organizer-1');
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizerId: 'organizer-1' },
         }),
       );
     });

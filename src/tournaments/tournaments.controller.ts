@@ -55,6 +55,16 @@ export class TournamentsController {
     return this.tournamentsService.findAll(status);
   }
 
+  // GET /tournaments/mine — Organizer views their own tournaments, any status
+  // (including PENDING_APPROVAL/REJECTED, hidden from the public GET /tournaments list)
+  @Get('mine')
+  @ApiOperation({
+    summary: 'List tournaments created by the logged-in organizer',
+  })
+  findMine(@Request() req: { user: { id: string } }) {
+    return this.tournamentsService.findMine(req.user.id);
+  }
+
   // POST /tournaments — Admin, Organizer, or Athlete creates a tournament
   // Organizer-created tournaments require Admin approval before going live
   // Cover image is optional, uploaded to Cloudinary server-side (multipart/form-data)
