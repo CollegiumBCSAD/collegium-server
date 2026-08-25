@@ -88,6 +88,7 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          gameTitle: undefined,
           bracketFormat: undefined,
           teamQuota: undefined,
           rules: undefined,
@@ -112,6 +113,7 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          gameTitle: undefined,
           bracketFormat: undefined,
           teamQuota: undefined,
           rules: undefined,
@@ -123,9 +125,10 @@ describe('TournamentsService', () => {
       });
     });
 
-    it('persists bracketFormat, teamQuota, and rules when provided', async () => {
+    it('persists gameTitle, bracketFormat, teamQuota, and rules when provided', async () => {
       const dto = {
         name: 'Community Cup',
+        gameTitle: GameTitle.VALORANT,
         bracketFormat: 'Single Elimination',
         teamQuota: 8,
         rules: 'Best of 3 semis, Bo5 finals',
@@ -141,6 +144,7 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          gameTitle: dto.gameTitle,
           bracketFormat: dto.bracketFormat,
           teamQuota: dto.teamQuota,
           rules: dto.rules,
@@ -178,6 +182,7 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
+          gameTitle: undefined,
           bracketFormat: undefined,
           teamQuota: undefined,
           rules: undefined,
@@ -606,6 +611,48 @@ describe('TournamentsService', () => {
       await expect(service.deleteTournament(tournamentId)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // getAllPendingApplications()
+  describe('getAllPendingApplications()', () => {
+    it('returns pending applications across tournaments, enriched with the real tournament name/game', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: 'tournament-1',
+          status: TournamentStatus.UPCOMING,
+          universities: [],
+        })
+        .mockResolvedValueOnce({
+          name: 'Community Cup',
+          gameTitle: GameTitle.VALORANT,
+        });
+      mockPrismaService.university.findUnique.mockResolvedValue({
+        id: 'uni-1',
+        name: 'University of Makati',
+      });
+
+      await service.applyForTournament('tournament-1', {
+        id: 'user-1',
+        displayName: 'Captain One',
+        universityId: 'uni-1',
+      });
+
+      const result = await service.getAllPendingApplications();
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          tournamentId: 'tournament-1',
+          status: 'PENDING',
+          tournamentName: 'Community Cup',
+          gameTitle: GameTitle.VALORANT,
+        }),
+      ]);
+    });
+
+    it('returns an empty list when nothing is pending', async () => {
+      const result = await service.getAllPendingApplications();
+      expect(result).toEqual([]);
     });
   });
 });

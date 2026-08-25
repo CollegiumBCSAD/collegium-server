@@ -129,6 +129,17 @@ export class TournamentsController {
     );
   }
 
+  // GET /tournaments/applications/pending — Admin views pending squad
+  // applications across every tournament (not scoped to one)
+  @Get('applications/pending')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'Get all pending squad applications, all tournaments (Admin only)',
+  })
+  getAllPendingApplications() {
+    return this.tournamentsService.getAllPendingApplications();
+  }
+
   // GET /tournaments/:id/applications — Organizer or Admin views pending applications
   @Get(':id/applications')
   @Roles(Role.ORGANIZER, Role.ADMIN)

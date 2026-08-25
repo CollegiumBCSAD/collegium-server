@@ -102,6 +102,7 @@ export class TournamentsService {
     return this.prisma.tournament.create({
       data: {
         name: createTournamentDto.name,
+        gameTitle: createTournamentDto.gameTitle,
         bracketFormat: createTournamentDto.bracketFormat,
         teamQuota: createTournamentDto.teamQuota,
         rules: createTournamentDto.rules,
@@ -256,6 +257,37 @@ export class TournamentsService {
   // GET APPLICATIONS — List applications for a tournament
   getApplications(tournamentId: string) {
     return this.applications.get(tournamentId) || [];
+  }
+
+  // GET ALL PENDING APPLICATIONS — Admin-wide view across every tournament,
+  // enriched with the real tournament name/game (not the applicant's own copy)
+  async getAllPendingApplications() {
+    const pending: Array<
+      TournamentApplication & {
+        tournamentName: string;
+        gameTitle: string | null;
+      }
+    > = [];
+
+    for (const [tournamentId, apps] of this.applications.entries()) {
+      const pendingForTournament = apps.filter((a) => a.status === 'PENDING');
+      if (pendingForTournament.length === 0) continue;
+
+      const tournament = await this.prisma.tournament.findUnique({
+        where: { id: tournamentId },
+        select: { name: true, gameTitle: true },
+      });
+
+      for (const app of pendingForTournament) {
+        pending.push({
+          ...app,
+          tournamentName: tournament?.name ?? 'Unknown Tournament',
+          gameTitle: tournament?.gameTitle ?? null,
+        });
+      }
+    }
+
+    return pending;
   }
 
   // APPROVE APPLICATION — Organizer sanctions squad application

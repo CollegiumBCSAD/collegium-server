@@ -219,6 +219,7 @@ model Tournament {
   id              String           @id @default(uuid())
   name            String
   status          TournamentStatus @default(UPCOMING)
+  gameTitle       GameTitle?
   image           String?
   imagePublicId   String?
   bracketFormat   String?
