@@ -8,13 +8,39 @@ import {
   Post,
   Query,
   Request,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Role, TournamentStatus } from '@prisma/client';
-import { ApiOperation, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiTags,
+  ApiBearerAuth,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { TournamentsService } from './tournaments.service';
+
+const IMAGE_UPLOAD_OPTIONS = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    callback: (error: Error | null, accept: boolean) => void,
+  ) => {
+    callback(
+      file.mimetype.startsWith('image/')
+        ? null
+        : new Error('Only image files are allowed'),
+      file.mimetype.startsWith('image/'),
+    );
+  },
+};
 
 @ApiTags('Tournaments')
 @ApiBearerAuth() // This indicates that the endpoints require authentication
@@ -31,14 +57,18 @@ export class TournamentsController {
 
   // POST /tournaments — Admin, Organizer, or Athlete creates a tournament
   // Organizer-created tournaments require Admin approval before going live
+  // Cover image is optional, uploaded to Cloudinary server-side (multipart/form-data)
   @Post()
   @Roles(Role.ADMIN, Role.ORGANIZER, Role.ATHLETE)
+  @UseInterceptors(FileInterceptor('image', IMAGE_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Create a new tournament' })
   create(
     @Body() createTournamentDto: CreateTournamentDto,
     @Request() req: { user: { id: string; role: Role } },
+    @UploadedFile() image?: Express.Multer.File,
   ) {
-    return this.tournamentsService.create(createTournamentDto, req.user);
+    return this.tournamentsService.create(createTournamentDto, req.user, image);
   }
 
   // PATCH /tournaments/:id/status — Admin approves or rejects a pending tournament

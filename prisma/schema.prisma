@@ -220,6 +220,7 @@ model Tournament {
   name            String
   status          TournamentStatus @default(UPCOMING)
   image           String?
+  imagePublicId   String?
   organizerId     String?
   organizer       User?            @relation("TournamentOrganizer", fields: [organizerId], references: [id])
   rejectionReason String?

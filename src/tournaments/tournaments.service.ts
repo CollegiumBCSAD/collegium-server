@@ -15,6 +15,7 @@ import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GlickoService } from '../universities/glicko.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 
@@ -38,6 +39,7 @@ export class TournamentsService {
     private matchLoggingService: MatchLoggingService,
     private glickoService: GlickoService,
     private notificationsService: NotificationsService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   // FIND ALL — List tournaments, optionally filtered by status.
@@ -69,16 +71,26 @@ export class TournamentsService {
 
   // CREATE — Create a new tournament.
   // Organizer-created tournaments require Admin approval before going live.
+  // An optional cover image is uploaded to Cloudinary server-side.
   async create(
     createTournamentDto: CreateTournamentDto,
     user: { id: string; role: Role },
+    image?: Express.Multer.File,
   ) {
     const isOrganizer = user.role === Role.ORGANIZER;
+
+    const uploaded = image
+      ? await this.cloudinaryService.upload(
+          image.buffer,
+          'collegium/tournaments',
+        )
+      : null;
 
     return this.prisma.tournament.create({
       data: {
         name: createTournamentDto.name,
-        image: createTournamentDto.image,
+        image: uploaded?.url,
+        imagePublicId: uploaded?.publicId,
         organizerId: isOrganizer ? user.id : undefined,
         status: isOrganizer
           ? TournamentStatus.PENDING_APPROVAL
@@ -573,8 +585,16 @@ export class TournamentsService {
       where: { tournamentId: id },
     });
 
-    return this.prisma.tournament.delete({
+    const deleted = await this.prisma.tournament.delete({
       where: { id },
     });
+
+    if (tournament.imagePublicId) {
+      await this.cloudinaryService
+        .destroy(tournament.imagePublicId)
+        .catch(() => null);
+    }
+
+    return deleted;
   }
 }

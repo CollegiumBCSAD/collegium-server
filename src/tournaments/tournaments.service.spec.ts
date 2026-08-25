@@ -4,6 +4,7 @@ import { MatchMode, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
@@ -18,6 +19,7 @@ const mockPrismaService = {
     findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    delete: jest.fn(),
   },
   university: {
     findUnique: jest.fn(),
@@ -28,6 +30,7 @@ const mockPrismaService = {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    deleteMany: jest.fn(),
   },
   $transaction: jest.fn(),
 };
@@ -38,6 +41,11 @@ const mockMatchLoggingService = {
 
 const mockNotificationsService = {
   create: jest.fn(),
+};
+
+const mockCloudinaryService = {
+  upload: jest.fn(),
+  destroy: jest.fn(),
 };
 
 describe('TournamentsService', () => {
@@ -51,6 +59,7 @@ describe('TournamentsService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MatchLoggingService, useValue: mockMatchLoggingService },
         { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
     }).compile();
 
@@ -80,6 +89,7 @@ describe('TournamentsService', () => {
         data: {
           name: dto.name,
           image: undefined,
+          imagePublicId: undefined,
           organizerId: undefined,
           status: TournamentStatus.UPCOMING,
         },
@@ -87,7 +97,7 @@ describe('TournamentsService', () => {
     });
 
     it('creates an ORGANIZER-authored tournament as PENDING_APPROVAL with organizerId set', async () => {
-      const dto = { name: 'Community Cup', image: 'https://cdn/img.png' };
+      const dto = { name: 'Community Cup' };
       mockPrismaService.tournament.create.mockResolvedValue({
         id: 'tournament-uuid',
         name: dto.name,
@@ -99,7 +109,42 @@ describe('TournamentsService', () => {
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
         data: {
           name: dto.name,
-          image: dto.image,
+          image: undefined,
+          imagePublicId: undefined,
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+
+    it('uploads a cover image to Cloudinary when one is provided', async () => {
+      const dto = { name: 'Community Cup' };
+      const fakeFile = { buffer: Buffer.from('fake') } as Express.Multer.File;
+      mockCloudinaryService.upload.mockResolvedValue({
+        url: 'https://res.cloudinary.com/x/img.png',
+        publicId: 'collegium/tournaments/abc123',
+      });
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(
+        dto,
+        { id: 'organizer-1', role: Role.ORGANIZER },
+        fakeFile,
+      );
+
+      expect(mockCloudinaryService.upload).toHaveBeenCalledWith(
+        fakeFile.buffer,
+        'collegium/tournaments',
+      );
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          image: 'https://res.cloudinary.com/x/img.png',
+          imagePublicId: 'collegium/tournaments/abc123',
           organizerId: 'organizer-1',
           status: TournamentStatus.PENDING_APPROVAL,
         },
@@ -455,6 +500,58 @@ describe('TournamentsService', () => {
 
       await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
         BadRequestException,
+      );
+    });
+  });
+
+  // deleteTournament()
+  describe('deleteTournament()', () => {
+    const tournamentId = 'tournament-uuid';
+
+    it('deletes the tournament and its matches, and cleans up the Cloudinary asset', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        imagePublicId: 'collegium/tournaments/abc123',
+      });
+      mockPrismaService.match.deleteMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.tournament.delete.mockResolvedValue({
+        id: tournamentId,
+      });
+      mockCloudinaryService.destroy.mockResolvedValue(undefined);
+
+      await service.deleteTournament(tournamentId);
+
+      expect(mockPrismaService.match.deleteMany).toHaveBeenCalledWith({
+        where: { tournamentId },
+      });
+      expect(mockPrismaService.tournament.delete).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+      });
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'collegium/tournaments/abc123',
+      );
+    });
+
+    it('skips Cloudinary cleanup when the tournament has no image', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        imagePublicId: null,
+      });
+      mockPrismaService.match.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrismaService.tournament.delete.mockResolvedValue({
+        id: tournamentId,
+      });
+
+      await service.deleteTournament(tournamentId);
+
+      expect(mockCloudinaryService.destroy).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException if the tournament does not exist', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
+
+      await expect(service.deleteTournament(tournamentId)).rejects.toThrow(
+        NotFoundException,
       );
     });
   });
