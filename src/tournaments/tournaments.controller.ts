@@ -4,10 +4,12 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
+  Query,
   Request,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, TournamentStatus } from '@prisma/client';
 import { ApiOperation, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
@@ -20,19 +22,37 @@ import { TournamentsService } from './tournaments.service';
 export class TournamentsController {
   constructor(private readonly tournamentsService: TournamentsService) {}
 
-  // GET /tournaments — Anyone logged in can list all tournaments
+  // GET /tournaments — Anyone logged in can list all tournaments (optionally filtered by status)
   @Get()
   @ApiOperation({ summary: 'List all tournaments' })
-  findAll() {
-    return this.tournamentsService.findAll();
+  findAll(@Query('status') status?: TournamentStatus) {
+    return this.tournamentsService.findAll(status);
   }
 
   // POST /tournaments — Admin, Organizer, or Athlete creates a tournament
+  // Organizer-created tournaments require Admin approval before going live
   @Post()
   @Roles(Role.ADMIN, Role.ORGANIZER, Role.ATHLETE)
   @ApiOperation({ summary: 'Create a new tournament' })
-  create(@Body() createTournamentDto: CreateTournamentDto) {
-    return this.tournamentsService.create(createTournamentDto);
+  create(
+    @Body() createTournamentDto: CreateTournamentDto,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.create(createTournamentDto, req.user);
+  }
+
+  // PATCH /tournaments/:id/status — Admin approves or rejects a pending tournament
+  @Patch(':id/status')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'Approve or reject a pending tournament (Admin only)',
+  })
+  updateStatus(
+    @Param('id') id: string,
+    @Body('status') status: TournamentStatus,
+    @Body('reason') reason?: string,
+  ) {
+    return this.tournamentsService.updateApprovalStatus(id, status, reason);
   }
 
   // DELETE /tournaments/:id — Admin or Organizer deletes a tournament

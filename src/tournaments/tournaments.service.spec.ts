@@ -1,8 +1,9 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MatchMode, TournamentStatus, GameTitle } from '@prisma/client';
+import { MatchMode, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
@@ -14,6 +15,7 @@ import { GlickoService } from '../universities/glicko.service';
 const mockPrismaService = {
   tournament: {
     create: jest.fn(),
+    findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
   },
@@ -34,6 +36,10 @@ const mockMatchLoggingService = {
   logMatch: jest.fn(),
 };
 
+const mockNotificationsService = {
+  create: jest.fn(),
+};
+
 describe('TournamentsService', () => {
   let service: TournamentsService;
 
@@ -44,6 +50,7 @@ describe('TournamentsService', () => {
         GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MatchLoggingService, useValue: mockMatchLoggingService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
       ],
     }).compile();
 
@@ -59,22 +66,165 @@ describe('TournamentsService', () => {
 
   // create()
   describe('create()', () => {
-    it('should create a tournament and return it', async () => {
+    it('creates an ATHLETE-authored tournament as UPCOMING with no organizer', async () => {
       const dto = { name: 'Intercollegiate Cup 2026' };
-      const mockResult = {
+      mockPrismaService.tournament.create.mockResolvedValue({
         id: 'tournament-uuid',
         name: dto.name,
         status: TournamentStatus.UPCOMING,
-      };
+      });
 
-      mockPrismaService.tournament.create.mockResolvedValue(mockResult);
-
-      const result = await service.create(dto);
+      await service.create(dto, { id: 'user-1', role: Role.ATHLETE });
 
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
-        data: { name: dto.name },
+        data: {
+          name: dto.name,
+          image: undefined,
+          organizerId: undefined,
+          status: TournamentStatus.UPCOMING,
+        },
       });
-      expect(result).toEqual(mockResult);
+    });
+
+    it('creates an ORGANIZER-authored tournament as PENDING_APPROVAL with organizerId set', async () => {
+      const dto = { name: 'Community Cup', image: 'https://cdn/img.png' };
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(dto, { id: 'organizer-1', role: Role.ORGANIZER });
+
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          image: dto.image,
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+  });
+
+  // findAll()
+  describe('findAll()', () => {
+    it('excludes PENDING_APPROVAL/REJECTED by default', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findAll();
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: {
+              notIn: [
+                TournamentStatus.PENDING_APPROVAL,
+                TournamentStatus.REJECTED,
+              ],
+            },
+          },
+        }),
+      );
+    });
+
+    it('filters by the given status when provided', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findAll(TournamentStatus.PENDING_APPROVAL);
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: TournamentStatus.PENDING_APPROVAL },
+        }),
+      );
+    });
+  });
+
+  // updateApprovalStatus()
+  describe('updateApprovalStatus()', () => {
+    const tournamentId = 'tournament-uuid';
+
+    it('approves a pending tournament and notifies the organizer', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        name: 'Community Cup',
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+      mockPrismaService.tournament.update.mockResolvedValue({
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+      });
+
+      await service.updateApprovalStatus(
+        tournamentId,
+        TournamentStatus.UPCOMING,
+      );
+
+      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.UPCOMING, rejectionReason: null },
+      });
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'organizer-1',
+          type: 'TOURNAMENT_APPROVED',
+        }),
+      );
+    });
+
+    it('rejects a pending tournament with a reason and notifies the organizer', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        name: 'Community Cup',
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+      mockPrismaService.tournament.update.mockResolvedValue({
+        id: tournamentId,
+        status: TournamentStatus.REJECTED,
+      });
+
+      await service.updateApprovalStatus(
+        tournamentId,
+        TournamentStatus.REJECTED,
+        'Missing bracket format',
+      );
+
+      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+        data: {
+          status: TournamentStatus.REJECTED,
+          rejectionReason: 'Missing bracket format',
+        },
+      });
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'organizer-1',
+          type: 'TOURNAMENT_REJECTED',
+        }),
+      );
+    });
+
+    it('throws NotFoundException if the tournament does not exist', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateApprovalStatus(tournamentId, TournamentStatus.UPCOMING),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException for any status other than UPCOMING/REJECTED', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await expect(
+        service.updateApprovalStatus(tournamentId, TournamentStatus.ONGOING),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

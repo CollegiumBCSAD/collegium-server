@@ -33,9 +33,11 @@ enum MatchMode {
 }
 
 enum TournamentStatus {
+  PENDING_APPROVAL
   UPCOMING
   ONGOING
   COMPLETED
+  REJECTED
 }
 
 enum DataSource {
@@ -60,6 +62,7 @@ enum ScrimStatus {
 enum NotificationCategory {
   SCRIM
   TEAM
+  TOURNAMENT
 }
 
 enum NotificationType {
@@ -70,6 +73,8 @@ enum NotificationType {
   TEAM_JOIN_REQUEST
   TEAM_REQUEST_ACCEPTED
   TEAM_REQUEST_DECLINED
+  TOURNAMENT_APPROVED
+  TOURNAMENT_REJECTED
 }
 
 model University {
@@ -118,6 +123,7 @@ model User {
   refreshTokens  RefreshToken[]
   notifications  Notification[]
   scrimChatMessages ScrimChatMessage[]
+  organizedTournaments Tournament[] @relation("TournamentOrganizer")
   createdAt      DateTime       @default(now())
 }
 
@@ -210,12 +216,16 @@ model Match {
 }
 
 model Tournament {
-  id           String           @id @default(uuid())
-  name         String
-  status       TournamentStatus @default(UPCOMING)
-  createdAt    DateTime         @default(now())
-  matches      Match[]
-  universities University[]
+  id              String           @id @default(uuid())
+  name            String
+  status          TournamentStatus @default(UPCOMING)
+  image           String?
+  organizerId     String?
+  organizer       User?            @relation("TournamentOrganizer", fields: [organizerId], references: [id])
+  rejectionReason String?
+  createdAt       DateTime         @default(now())
+  matches         Match[]
+  universities    University[]
 }
 
 model PlayerStat {

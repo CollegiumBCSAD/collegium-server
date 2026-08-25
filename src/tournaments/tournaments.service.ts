@@ -3,10 +3,18 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { GameTitle, MatchMode, TournamentStatus } from '@prisma/client';
+import {
+  GameTitle,
+  MatchMode,
+  NotificationCategory,
+  NotificationType,
+  Role,
+  TournamentStatus,
+} from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GlickoService } from '../universities/glicko.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 
@@ -29,11 +37,23 @@ export class TournamentsService {
     private prisma: PrismaService,
     private matchLoggingService: MatchLoggingService,
     private glickoService: GlickoService,
+    private notificationsService: NotificationsService,
   ) {}
 
-  // FIND ALL — List all tournaments
-  async findAll() {
+  // FIND ALL — List tournaments, optionally filtered by status.
+  // With no filter, hide PENDING_APPROVAL/REJECTED from the general public list.
+  async findAll(status?: TournamentStatus) {
     const list = await this.prisma.tournament.findMany({
+      where: status
+        ? { status }
+        : {
+            status: {
+              notIn: [
+                TournamentStatus.PENDING_APPROVAL,
+                TournamentStatus.REJECTED,
+              ],
+            },
+          },
       orderBy: { createdAt: 'desc' },
       include: {
         universities: true,
@@ -47,13 +67,75 @@ export class TournamentsService {
     }));
   }
 
-  // CREATE — Create a new tournament
-  async create(createTournamentDto: CreateTournamentDto) {
+  // CREATE — Create a new tournament.
+  // Organizer-created tournaments require Admin approval before going live.
+  async create(
+    createTournamentDto: CreateTournamentDto,
+    user: { id: string; role: Role },
+  ) {
+    const isOrganizer = user.role === Role.ORGANIZER;
+
     return this.prisma.tournament.create({
       data: {
         name: createTournamentDto.name,
+        image: createTournamentDto.image,
+        organizerId: isOrganizer ? user.id : undefined,
+        status: isOrganizer
+          ? TournamentStatus.PENDING_APPROVAL
+          : TournamentStatus.UPCOMING,
       },
     });
+  }
+
+  // UPDATE APPROVAL STATUS — Admin approves or rejects a pending tournament
+  async updateApprovalStatus(
+    id: string,
+    status: TournamentStatus,
+    reason?: string,
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    if (
+      status !== TournamentStatus.UPCOMING &&
+      status !== TournamentStatus.REJECTED
+    ) {
+      throw new BadRequestException(
+        'Tournament status can only be set to UPCOMING (approve) or REJECTED (reject) here',
+      );
+    }
+
+    const updated = await this.prisma.tournament.update({
+      where: { id },
+      data: {
+        status,
+        rejectionReason: status === TournamentStatus.REJECTED ? reason : null,
+      },
+    });
+
+    if (tournament.organizerId) {
+      const approved = status === TournamentStatus.UPCOMING;
+      await this.notificationsService.create({
+        userId: tournament.organizerId,
+        category: NotificationCategory.TOURNAMENT,
+        type: approved
+          ? NotificationType.TOURNAMENT_APPROVED
+          : NotificationType.TOURNAMENT_REJECTED,
+        title: approved ? '✅ Tournament Approved' : '🚫 Tournament Rejected',
+        message: approved
+          ? `Your tournament "${tournament.name}" was approved and is now live.`
+          : `Your tournament "${tournament.name}" was rejected.${reason ? ` Reason: ${reason}` : ''}`,
+        link: '/tournaments',
+        refId: `${tournament.id}:${status}`,
+      });
+    }
+
+    return updated;
   }
 
   // APPLY — Athlete / squad submits application (goes to Organizer for approval)
