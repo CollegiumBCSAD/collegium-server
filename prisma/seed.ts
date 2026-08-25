@@ -133,6 +133,17 @@ async function main() {
     },
   });
 
+  await prisma.user.create({
+    data: {
+      email: 'organizer@umak.edu.ph',
+      password: hashedPassword,
+      displayName: 'UMak Tournament Host',
+      role: Role.ORGANIZER,
+      universityId: universityByShort.get('UMak')!.id,
+      status: 'ACTIVE',
+    },
+  });
+
   const tournament = await prisma.tournament.create({
     data: {
       name: 'PH Collegiate Valorant Invitational — Season 1',

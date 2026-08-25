@@ -10,6 +10,7 @@ enum Role {
   ATHLETE
   NON_ATHLETE
   ADMIN
+  ORGANIZER
 }
 
 enum AccountStatus {
@@ -106,7 +107,7 @@ model User {
   id             String         @id @default(uuid())
   email          String         @unique
   password       String?
-  role           Role           @default(ATHLETE)
+  role           Role           @default(NON_ATHLETE)
   status         AccountStatus  @default(PENDING)
   displayName    String
   universityId   String

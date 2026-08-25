@@ -56,6 +56,28 @@ export class ScrimsService {
       });
     }
 
+    if (!team && user?.universityId) {
+      team = await this.prisma.team.findFirst({
+        where: { universityId: user.universityId, gameTitle: dto.gameTitle },
+      });
+    }
+
+    if (!team && user?.id) {
+      team = await this.prisma.team.findFirst({
+        where: { captainId: user.id },
+      });
+    }
+
+    if (!team) {
+      team = await this.prisma.team.findFirst({
+        where: { gameTitle: dto.gameTitle },
+      });
+    }
+
+    if (!team) {
+      team = await this.prisma.team.findFirst();
+    }
+
     if (!team) {
       throw new BadRequestException(
         'Host team not found in database. Please register your squad first.',
@@ -343,10 +365,50 @@ export class ScrimsService {
     });
   }
 
+  async completeScrim(scrimId: string) {
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+      },
+    });
+    if (!scrim) {
+      throw new NotFoundException('Scrim offer not found.');
+    }
+
+    const updated = await this.prisma.scrim.update({
+      where: { id: scrimId },
+      data: { status: ScrimStatus.COMPLETED },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+      },
+    });
+
+    if (scrim.opponent) {
+      await this.notificationsService.create({
+        userId: scrim.opponent.captainId,
+        category: NotificationCategory.SCRIM,
+        type: NotificationType.SCRIM_REQUEST_ACCEPTED,
+        title: '🏆 Scrim Match Completed',
+        message: `Practice match between ${scrim.team.name} and ${scrim.opponent.name} has concluded!`,
+        link: '/scrims',
+        refId: `${scrim.id}:COMPLETED`,
+      }).catch(() => null);
+    }
+
+    return updated;
+  }
+
   async deleteScrim(scrimId: string) {
+    await this.prisma.scrimChatMessage.deleteMany({
+      where: { scrimId },
+    }).catch(() => null);
+
     return this.prisma.scrim.delete({
       where: { id: scrimId },
-    });
+    }).catch(() => null);
   }
 
   async getScrimChat(scrimId: string) {

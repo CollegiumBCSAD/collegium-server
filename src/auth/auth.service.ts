@@ -80,7 +80,7 @@ export class AuthService {
         email,
         password: hashedPassword,
         displayName: dto.displayName,
-        role: dto.role ?? Role.ATHLETE,
+        role: dto.role ?? Role.NON_ATHLETE,
         universityId: university.id,
         status: AccountStatus.ACTIVE,
       },
@@ -156,7 +156,7 @@ export class AuthService {
         data: {
           email,
           displayName: googleUser.displayName,
-          role: Role.ATHLETE,
+          role: Role.NON_ATHLETE,
           universityId: university.id,
           status: AccountStatus.ACTIVE,
         },
