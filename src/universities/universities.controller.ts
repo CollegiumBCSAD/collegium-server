@@ -1,7 +1,17 @@
-import { Controller, Post, Body, Get, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Get,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UniversitiesService } from './universities.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
+import { UpdateUniversityDto } from './dto/update-university.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role, GameTitle } from '@prisma/client';
 
@@ -29,5 +39,22 @@ export class UniversitiesController {
   @ApiOperation({ summary: 'Register a new university (Admin only)' })
   create(@Body() createUniversityDto: CreateUniversityDto) {
     return this.universitiesService.create(createUniversityDto);
+  }
+
+  @Patch(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Edit a university's name/domain (Admin only)" })
+  update(
+    @Param('id') id: string,
+    @Body() updateUniversityDto: UpdateUniversityDto,
+  ) {
+    return this.universitiesService.update(id, updateUniversityDto);
+  }
+
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Remove a university (Admin only)' })
+  remove(@Param('id') id: string) {
+    return this.universitiesService.remove(id);
   }
 }
