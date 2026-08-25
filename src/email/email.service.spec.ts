@@ -2,12 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email.service';
 
-const mockSend = jest.fn();
+const mockSendMail = jest.fn();
 
-jest.mock('@sendgrid/mail', () => ({
-  setApiKey: jest.fn(),
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  send: (...args: unknown[]) => mockSend(...args),
+jest.mock('nodemailer', () => ({
+  createTransport: jest.fn(() => ({
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    sendMail: (...args: unknown[]) => mockSendMail(...args),
+  })),
 }));
 
 const mockConfigService = {
@@ -35,7 +36,7 @@ describe('EmailService', () => {
 
   describe('sendVerificationEmail()', () => {
     it('sends a verification email with the given link', async () => {
-      mockSend.mockResolvedValue({});
+      mockSendMail.mockResolvedValue({});
 
       await service.sendVerificationEmail(
         'student@umak.edu.ph',
@@ -44,7 +45,7 @@ describe('EmailService', () => {
       );
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const call = mockSend.mock.calls[0][0] as {
+      const call = mockSendMail.mock.calls[0][0] as {
         to: string;
         subject: string;
         html: string;
@@ -56,8 +57,8 @@ describe('EmailService', () => {
       );
     });
 
-    it('throws when SendGrid rejects the send', async () => {
-      mockSend.mockRejectedValue(new Error('invalid API key'));
+    it('throws when the SMTP transport rejects the send', async () => {
+      mockSendMail.mockRejectedValue(new Error('invalid login'));
 
       await expect(
         service.sendVerificationEmail(
