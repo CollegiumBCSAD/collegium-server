@@ -18,6 +18,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
 const EMAIL_VERIFICATION_TOKEN_TTL_HOURS = 24;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -79,7 +80,20 @@ export class AuthService {
     });
 
     if (existing) {
-      throw new ConflictException('An account with this email already exists');
+      // Already registered but never verified (e.g. the first email got
+      // lost) — re-registering is the obvious thing a real user tries next,
+      // so treat it as a resend instead of a dead-end conflict error.
+      if (!existing.emailVerified) {
+        await this.maybeResendVerification(existing);
+        return {
+          message:
+            'An unverified account with this email already exists. Check your email for the verification link — we just sent a fresh one if it had been a while.',
+        };
+      }
+
+      throw new ConflictException(
+        'An account with this email already exists. Log in instead, or use "Continue with Google" if that\'s how you originally signed up.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -214,6 +228,20 @@ export class AuthService {
           emailVerified: true,
         },
       });
+    } else if (!user.emailVerified) {
+      // An email+password registration for this address exists but was
+      // never verified. Google just proved ownership of the same inbox —
+      // stronger proof than the emailed link would have been — so this is
+      // a legitimate way to get verified, not a bypass. Without this, the
+      // email-verification gate on login() would be silently skippable by
+      // anyone who could sign in via Google with that address.
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerified: true },
+      });
+      await this.prisma.emailVerificationToken.deleteMany({
+        where: { userId: user.id },
+      });
     }
 
     if (user.status !== AccountStatus.ACTIVE) {
@@ -274,16 +302,40 @@ export class AuthService {
 
     // Deliberately generic response either way — don't leak account existence.
     if (user && !user.emailVerified) {
-      await this.prisma.emailVerificationToken.deleteMany({
-        where: { userId: user.id },
-      });
-      await this.issueVerificationEmail(user.id, user.email, user.displayName);
+      await this.maybeResendVerification(user);
     }
 
     return {
       message:
         "If that account exists and isn't verified yet, we've sent a new link.",
     };
+  }
+
+  // Re-issues a verification email, but skips it (silently — caller still
+  // returns its normal response either way) if one was already sent within
+  // the last minute, so repeated register/resend calls can't be used to
+  // spam an inbox or burn through the email provider's quota.
+  private async maybeResendVerification(user: {
+    id: string;
+    email: string;
+    displayName: string;
+  }) {
+    const mostRecent = await this.prisma.emailVerificationToken.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (
+      mostRecent &&
+      Date.now() - mostRecent.createdAt.getTime() < RESEND_COOLDOWN_MS
+    ) {
+      return;
+    }
+
+    await this.prisma.emailVerificationToken.deleteMany({
+      where: { userId: user.id },
+    });
+    await this.issueVerificationEmail(user.id, user.email, user.displayName);
   }
 
   async getMe(userId: string) {

@@ -43,6 +43,7 @@ const mockPrismaService = {
   emailVerificationToken: {
     create: jest.fn(),
     findUnique: jest.fn(),
+    findFirst: jest.fn(),
     deleteMany: jest.fn(),
   },
 };
@@ -178,10 +179,37 @@ describe('AuthService', () => {
       });
     });
 
-    it('should throw ConflictException if email already exists', async () => {
+    it('should throw ConflictException if a verified account with this email already exists', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
-      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'existing' });
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'existing',
+        emailVerified: true,
+      });
       await expect(service.register(dto)).rejects.toThrow(ConflictException);
+    });
+
+    it('resends a verification email instead of erroring if the existing account was never verified', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'existing',
+        email: dto.email,
+        displayName: 'Student',
+        emailVerified: false,
+      });
+      mockPrismaService.emailVerificationToken.findFirst.mockResolvedValue(
+        null,
+      );
+      mockPrismaService.emailVerificationToken.deleteMany.mockResolvedValue({
+        count: 0,
+      });
+      mockPrismaService.emailVerificationToken.create.mockResolvedValue({});
+      mockEmailService.sendVerificationEmail.mockResolvedValue(undefined);
+
+      const result = await service.register(dto);
+
+      expect(result).toHaveProperty('message');
+      expect(mockEmailService.sendVerificationEmail).toHaveBeenCalled();
+      expect(mockPrismaService.user.create).not.toHaveBeenCalled();
     });
   });
 
@@ -238,6 +266,88 @@ describe('AuthService', () => {
       });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
       await expect(service.login(dto)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('googleLogin()', () => {
+    const googleUser = { email: 'student@admu.edu.ph', displayName: 'Student' };
+    const mockUniversity = { id: 'uni-1', domain: 'admu.edu.ph' };
+
+    it('creates a new user already marked as verified', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-1',
+        email: googleUser.email,
+        role: Role.NON_ATHLETE,
+        universityId: 'uni-1',
+        status: AccountStatus.ACTIVE,
+        emailVerified: true,
+      });
+      mockJwtService.sign.mockReturnValue('mocked_access_token');
+      mockPrismaService.refreshToken.create.mockResolvedValue({});
+
+      await service.googleLogin(googleUser);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const createCall = mockPrismaService.user.create.mock.calls[0][0] as {
+        data: { emailVerified: boolean };
+      };
+      expect(createCall.data.emailVerified).toBe(true);
+    });
+
+    it('logs in an existing already-verified user without touching verification state', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: googleUser.email,
+        role: Role.NON_ATHLETE,
+        universityId: 'uni-1',
+        status: AccountStatus.ACTIVE,
+        emailVerified: true,
+      });
+      mockJwtService.sign.mockReturnValue('mocked_access_token');
+      mockPrismaService.refreshToken.create.mockResolvedValue({});
+
+      await service.googleLogin(googleUser);
+
+      expect(mockPrismaService.user.update).not.toHaveBeenCalled();
+    });
+
+    it('auto-verifies and clears pending tokens for an existing unverified email+password account', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: googleUser.email,
+        role: Role.NON_ATHLETE,
+        universityId: 'uni-1',
+        status: AccountStatus.ACTIVE,
+        emailVerified: false,
+      });
+      mockPrismaService.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: googleUser.email,
+        role: Role.NON_ATHLETE,
+        universityId: 'uni-1',
+        status: AccountStatus.ACTIVE,
+        emailVerified: true,
+      });
+      mockPrismaService.emailVerificationToken.deleteMany.mockResolvedValue({
+        count: 1,
+      });
+      mockJwtService.sign.mockReturnValue('mocked_access_token');
+      mockPrismaService.refreshToken.create.mockResolvedValue({});
+
+      const result = await service.googleLogin(googleUser);
+
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { emailVerified: true },
+      });
+      expect(
+        mockPrismaService.emailVerificationToken.deleteMany,
+      ).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+      expect(result).toHaveProperty('access_token', 'mocked_access_token');
     });
   });
 
@@ -308,6 +418,9 @@ describe('AuthService', () => {
         displayName: 'Student',
         emailVerified: false,
       });
+      mockPrismaService.emailVerificationToken.findFirst.mockResolvedValue(
+        null,
+      );
       mockPrismaService.emailVerificationToken.deleteMany.mockResolvedValue({
         count: 0,
       });
@@ -317,6 +430,27 @@ describe('AuthService', () => {
       const result = await service.resendVerification('student@admu.edu.ph');
 
       expect(mockEmailService.sendVerificationEmail).toHaveBeenCalled();
+      expect(result).toHaveProperty('message');
+    });
+
+    it('does not resend while the last token is still within the cooldown window', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'student@admu.edu.ph',
+        displayName: 'Student',
+        emailVerified: false,
+      });
+      mockPrismaService.emailVerificationToken.findFirst.mockResolvedValue({
+        id: 'token-1',
+        createdAt: new Date(Date.now() - 10 * 1000),
+      });
+
+      const result = await service.resendVerification('student@admu.edu.ph');
+
+      expect(mockEmailService.sendVerificationEmail).not.toHaveBeenCalled();
+      expect(
+        mockPrismaService.emailVerificationToken.create,
+      ).not.toHaveBeenCalled();
       expect(result).toHaveProperty('message');
     });
 
