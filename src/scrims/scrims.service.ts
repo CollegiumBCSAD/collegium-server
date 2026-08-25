@@ -387,28 +387,34 @@ export class ScrimsService {
     });
 
     if (scrim.opponent) {
-      await this.notificationsService.create({
-        userId: scrim.opponent.captainId,
-        category: NotificationCategory.SCRIM,
-        type: NotificationType.SCRIM_REQUEST_ACCEPTED,
-        title: '🏆 Scrim Match Completed',
-        message: `Practice match between ${scrim.team.name} and ${scrim.opponent.name} has concluded!`,
-        link: '/scrims',
-        refId: `${scrim.id}:COMPLETED`,
-      }).catch(() => null);
+      await this.notificationsService
+        .create({
+          userId: scrim.opponent.captainId,
+          category: NotificationCategory.SCRIM,
+          type: NotificationType.SCRIM_REQUEST_ACCEPTED,
+          title: '🏆 Scrim Match Completed',
+          message: `Practice match between ${scrim.team.name} and ${scrim.opponent.name} has concluded!`,
+          link: '/scrims',
+          refId: `${scrim.id}:COMPLETED`,
+        })
+        .catch(() => null);
     }
 
     return updated;
   }
 
   async deleteScrim(scrimId: string) {
-    await this.prisma.scrimChatMessage.deleteMany({
-      where: { scrimId },
-    }).catch(() => null);
+    await this.prisma.scrimChatMessage
+      .deleteMany({
+        where: { scrimId },
+      })
+      .catch(() => null);
 
-    return this.prisma.scrim.delete({
-      where: { id: scrimId },
-    }).catch(() => null);
+    return this.prisma.scrim
+      .delete({
+        where: { id: scrimId },
+      })
+      .catch(() => null);
   }
 
   async getScrimChat(scrimId: string) {

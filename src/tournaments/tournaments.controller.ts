@@ -18,7 +18,7 @@ import { TournamentsService } from './tournaments.service';
 @ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('tournaments')
 export class TournamentsController {
-  constructor(private readonly tournamentsService: TournamentsService) { }
+  constructor(private readonly tournamentsService: TournamentsService) {}
 
   // GET /tournaments — Anyone logged in can list all tournaments
   @Get()
@@ -49,7 +49,8 @@ export class TournamentsController {
   @ApiOperation({ summary: 'Apply for a tournament' })
   apply(
     @Param('id') tournamentId: string,
-    @Request() req: { user: { id: string; displayName?: string; universityId?: string } },
+    @Request()
+    req: { user: { id: string; displayName?: string; universityId?: string } },
   ) {
     return this.tournamentsService.applyForTournament(tournamentId, req.user);
   }
@@ -62,7 +63,10 @@ export class TournamentsController {
     @Param('id') tournamentId: string,
     @Request() req: { user: { id: string } },
   ) {
-    return this.tournamentsService.withdrawApplication(tournamentId, req.user.id);
+    return this.tournamentsService.withdrawApplication(
+      tournamentId,
+      req.user.id,
+    );
   }
 
   // GET /tournaments/:id/applications — Organizer or Admin views pending applications

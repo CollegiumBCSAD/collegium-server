@@ -144,7 +144,7 @@ export class TournamentsService {
   }
 
   // GET APPLICATIONS — List applications for a tournament
-  async getApplications(tournamentId: string) {
+  getApplications(tournamentId: string) {
     return this.applications.get(tournamentId) || [];
   }
 
@@ -222,15 +222,14 @@ export class TournamentsService {
       throw new NotFoundException('Tournament not found');
     }
 
-    if (tournament.status === TournamentStatus.COMPLETED) {
+    if (tournament.status !== TournamentStatus.UPCOMING) {
       throw new BadRequestException(
-        'Registration is closed for completed tournaments',
+        'Registration is only allowed for UPCOMING tournaments',
       );
     }
 
-    const alreadyConnected = tournament.universities.some(
-      (u) => u.id === universityId,
-    );
+    const alreadyConnected =
+      tournament.universities?.some((u) => u.id === universityId) ?? false;
 
     if (!alreadyConnected && universityId) {
       return this.prisma.tournament.update({
