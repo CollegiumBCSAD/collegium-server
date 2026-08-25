@@ -1,18 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
+import * as sgMail from '@sendgrid/mail';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend: Resend;
   private readonly from: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
-    this.from =
-      this.configService.get<string>('EMAIL_FROM') ??
-      'Collegium <onboarding@resend.dev>';
+    sgMail.setApiKey(this.configService.get<string>('SENDGRID_API_KEY') ?? '');
+    this.from = this.configService.get<string>('EMAIL_FROM') ?? '';
   }
 
   async sendVerificationEmail(
@@ -20,21 +17,21 @@ export class EmailService {
     displayName: string,
     verifyUrl: string,
   ): Promise<void> {
-    const { error } = await this.resend.emails.send({
-      from: this.from,
-      to,
-      subject: 'Verify your Collegium account',
-      html: `
-        <p>Hi ${displayName},</p>
-        <p>Confirm this is your institutional email to activate your Collegium account:</p>
-        <p><a href="${verifyUrl}">${verifyUrl}</a></p>
-        <p>This link expires in 24 hours.</p>
-      `,
-    });
-
-    if (error) {
+    try {
+      await sgMail.send({
+        from: this.from,
+        to,
+        subject: 'Verify your Collegium account',
+        html: `
+          <p>Hi ${displayName},</p>
+          <p>Confirm this is your institutional email to activate your Collegium account:</p>
+          <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+          <p>This link expires in 24 hours.</p>
+        `,
+      });
+    } catch (err) {
       this.logger.error(
-        `Failed to send verification email to ${to}: ${error.message}`,
+        `Failed to send verification email to ${to}: ${(err as Error).message}`,
       );
       throw new Error('Failed to send verification email');
     }

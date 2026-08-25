@@ -4,10 +4,10 @@ import { EmailService } from './email.service';
 
 const mockSend = jest.fn();
 
-jest.mock('resend', () => ({
-  Resend: jest.fn().mockImplementation(() => ({
-    emails: { send: mockSend },
-  })),
+jest.mock('@sendgrid/mail', () => ({
+  setApiKey: jest.fn(),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  send: (...args: unknown[]) => mockSend(...args),
 }));
 
 const mockConfigService = {
@@ -35,7 +35,7 @@ describe('EmailService', () => {
 
   describe('sendVerificationEmail()', () => {
     it('sends a verification email with the given link', async () => {
-      mockSend.mockResolvedValue({ data: { id: 'email-1' }, error: null });
+      mockSend.mockResolvedValue({});
 
       await service.sendVerificationEmail(
         'student@umak.edu.ph',
@@ -56,11 +56,8 @@ describe('EmailService', () => {
       );
     });
 
-    it('throws when Resend returns an error', async () => {
-      mockSend.mockResolvedValue({
-        data: null,
-        error: { message: 'invalid API key' },
-      });
+    it('throws when SendGrid rejects the send', async () => {
+      mockSend.mockRejectedValue(new Error('invalid API key'));
 
       await expect(
         service.sendVerificationEmail(
