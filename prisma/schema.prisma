@@ -114,6 +114,7 @@ model User {
   password       String?
   role           Role           @default(NON_ATHLETE)
   status         AccountStatus  @default(PENDING)
+  emailVerified  Boolean        @default(false)
   displayName    String
   universityId   String
   university     University     @relation(fields: [universityId], references: [id])
@@ -121,6 +122,7 @@ model User {
   teamMemberships TeamMember[]
   playerStats    PlayerStat[]
   refreshTokens  RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
   notifications  Notification[]
   scrimChatMessages ScrimChatMessage[]
   organizedTournaments Tournament[] @relation("TournamentOrganizer")
@@ -157,6 +159,15 @@ model TeamMember {
 }
 
 model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model EmailVerificationToken {
   id        String   @id @default(uuid())
   tokenHash String   @unique
   userId    String
