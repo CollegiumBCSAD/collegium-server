@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import {
+  buildVerificationEmailHtml,
+  buildVerificationEmailText,
+} from './templates/verification-email';
 
 @Injectable()
 export class EmailService {
@@ -30,12 +34,8 @@ export class EmailService {
         from: this.from,
         to,
         subject: 'Verify your Collegium account',
-        html: `
-          <p>Hi ${displayName},</p>
-          <p>Confirm this is your institutional email to activate your Collegium account:</p>
-          <p><a href="${verifyUrl}">${verifyUrl}</a></p>
-          <p>This link expires in 24 hours.</p>
-        `,
+        html: buildVerificationEmailHtml(displayName, verifyUrl),
+        text: buildVerificationEmailText(displayName, verifyUrl),
       });
     } catch (err) {
       this.logger.error(
