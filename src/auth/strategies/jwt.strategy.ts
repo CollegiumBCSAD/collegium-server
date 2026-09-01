@@ -6,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { AccountStatus } from '@prisma/client';
 
-import { Request } from 'express';
+import type { Request } from 'express';
 
 const cookieExtractor = (req: Request): string | null => {
   let token: string | null = null;

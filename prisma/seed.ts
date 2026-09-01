@@ -76,6 +76,7 @@ async function main() {
         role: Role.ATHLETE,
         universityId: university.id,
         status: 'ACTIVE',
+        emailVerified: true,
       },
     });
 
@@ -89,6 +90,7 @@ async function main() {
           role: Role.ATHLETE,
           universityId: university.id,
           status: 'ACTIVE',
+          emailVerified: true,
         },
       });
       athletes.push(athlete);
@@ -130,6 +132,19 @@ async function main() {
       role: Role.ADMIN,
       universityId: universityByShort.get('UMak')!.id,
       status: 'ACTIVE',
+      emailVerified: true,
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      email: 'organizer@umak.edu.ph',
+      password: hashedPassword,
+      displayName: 'UMak Tournament Host',
+      role: Role.ORGANIZER,
+      universityId: universityByShort.get('UMak')!.id,
+      status: 'ACTIVE',
+      emailVerified: true,
     },
   });
 

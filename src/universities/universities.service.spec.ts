@@ -8,6 +8,8 @@ const mockPrismaService = {
     findMany: jest.fn(),
     findUnique: jest.fn(),
     create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
   },
 };
 
@@ -92,6 +94,75 @@ describe('UniversitiesService', () => {
       });
 
       await expect(service.create(dto)).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('update()', () => {
+    it('updates name/domain when found and no domain conflict', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValueOnce({
+        id: '1',
+        name: 'Old Name',
+        domain: 'old.edu.ph',
+      });
+      const updated = { id: '1', name: 'New Name', domain: 'old.edu.ph' };
+      mockPrismaService.university.update.mockResolvedValue(updated);
+
+      const result = await service.update('1', { name: 'New Name' });
+
+      expect(mockPrismaService.university.update).toHaveBeenCalledWith({
+        where: { id: '1' },
+        data: { name: 'New Name' },
+      });
+      expect(result).toEqual(updated);
+    });
+
+    it('throws NotFoundException if the university does not exist', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValueOnce(null);
+
+      await expect(service.update('missing', { name: 'X' })).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws ConflictException if the new domain is already taken by another university', async () => {
+      mockPrismaService.university.findUnique
+        .mockResolvedValueOnce({ id: '1', name: 'Old', domain: 'old.edu.ph' })
+        .mockResolvedValueOnce({ id: '2', name: 'Other' });
+
+      await expect(
+        service.update('1', { domain: 'taken.edu.ph' }),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('remove()', () => {
+    it('deletes the university when found', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue({ id: '1' });
+      mockPrismaService.university.delete.mockResolvedValue({ id: '1' });
+
+      const result = await service.remove('1');
+
+      expect(mockPrismaService.university.delete).toHaveBeenCalledWith({
+        where: { id: '1' },
+      });
+      expect(result).toEqual({ id: '1' });
+    });
+
+    it('throws NotFoundException if the university does not exist', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(null);
+
+      await expect(service.remove('missing')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws ConflictException if the university has dependent records', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue({ id: '1' });
+      mockPrismaService.university.delete.mockRejectedValue(
+        new Error('Foreign key constraint failed'),
+      );
+
+      await expect(service.remove('1')).rejects.toThrow(ConflictException);
     });
   });
 });

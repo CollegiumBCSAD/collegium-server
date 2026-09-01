@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   NotificationCategory,
   NotificationType,
+  Role,
   TeamMemberStatus,
 } from '@prisma/client';
 import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
@@ -130,6 +131,12 @@ export class TeamsService {
       },
     });
 
+    // Automatically promote creator/captain to ATHLETE role if not ADMIN
+    await this.prisma.user.updateMany({
+      where: { id: dto.captainId, role: Role.NON_ATHLETE },
+      data: { role: Role.ATHLETE },
+    });
+
     return team;
   }
 
@@ -218,7 +225,13 @@ export class TeamsService {
       },
     });
 
-    if (memberStatus === TeamMemberStatus.PENDING) {
+    if (memberStatus === TeamMemberStatus.ACCEPTED) {
+      // Instant join via invite code promotes to ATHLETE
+      await this.prisma.user.updateMany({
+        where: { id: dto.userId, role: Role.NON_ATHLETE },
+        data: { role: Role.ATHLETE },
+      });
+    } else if (memberStatus === TeamMemberStatus.PENDING) {
       await this.notificationsService.create({
         userId: team.captainId,
         category: NotificationCategory.TEAM,
@@ -293,6 +306,14 @@ export class TeamsService {
       data: { status: newStatus },
     });
 
+    if (accept) {
+      // Promoted to ATHLETE when accepted
+      await this.prisma.user.updateMany({
+        where: { id: updatedMember.userId, role: Role.NON_ATHLETE },
+        data: { role: Role.ATHLETE },
+      });
+    }
+
     await this.notificationsService.create({
       userId: updatedMember.userId,
       category: NotificationCategory.TEAM,
@@ -348,6 +369,21 @@ export class TeamsService {
           where: { id: teamId },
         });
       }
+    }
+
+    // Check if user has any remaining accepted memberships or captaincies
+    const [captainCount, memberCount] = await Promise.all([
+      this.prisma.team.count({ where: { captainId: userId } }),
+      this.prisma.teamMember.count({
+        where: { userId, status: TeamMemberStatus.ACCEPTED },
+      }),
+    ]);
+
+    if (captainCount === 0 && memberCount === 0) {
+      await this.prisma.user.updateMany({
+        where: { id: userId, role: Role.ATHLETE },
+        data: { role: Role.NON_ATHLETE },
+      });
     }
 
     return { success: true, message: 'Successfully left the team roster.' };

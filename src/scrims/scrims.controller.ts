@@ -74,6 +74,12 @@ export class ScrimsController {
     return this.scrimsService.cancelScrim(id);
   }
 
+  @Patch(':id/complete')
+  @ApiOperation({ summary: 'Complete / close a booked scrim match' })
+  completeScrim(@Param('id') id: string) {
+    return this.scrimsService.completeScrim(id);
+  }
+
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete a scrim offer permanently (Requires authentication)',

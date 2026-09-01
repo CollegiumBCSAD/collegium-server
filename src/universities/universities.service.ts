@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
+import { UpdateUniversityDto } from './dto/update-university.dto';
 import { GameTitle } from '@prisma/client';
 
 @Injectable()
@@ -79,5 +80,52 @@ export class UniversitiesService {
         domain,
       },
     });
+  }
+
+  async update(id: string, updateUniversityDto: UpdateUniversityDto) {
+    const university = await this.prisma.university.findUnique({
+      where: { id },
+    });
+
+    if (!university) {
+      throw new NotFoundException('University not found.');
+    }
+
+    if (
+      updateUniversityDto.domain &&
+      updateUniversityDto.domain !== university.domain
+    ) {
+      const conflict = await this.prisma.university.findUnique({
+        where: { domain: updateUniversityDto.domain },
+      });
+      if (conflict) {
+        throw new ConflictException(
+          'Another university is already using that domain.',
+        );
+      }
+    }
+
+    return this.prisma.university.update({
+      where: { id },
+      data: updateUniversityDto,
+    });
+  }
+
+  async remove(id: string) {
+    const university = await this.prisma.university.findUnique({
+      where: { id },
+    });
+
+    if (!university) {
+      throw new NotFoundException('University not found.');
+    }
+
+    try {
+      return await this.prisma.university.delete({ where: { id } });
+    } catch {
+      throw new ConflictException(
+        'This university has registered users, teams, or matches and cannot be removed.',
+      );
+    }
   }
 }

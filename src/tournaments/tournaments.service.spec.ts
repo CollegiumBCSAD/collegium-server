@@ -1,8 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MatchMode, TournamentStatus, GameTitle } from '@prisma/client';
+import { MatchMode, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
@@ -14,8 +16,10 @@ import { GlickoService } from '../universities/glicko.service';
 const mockPrismaService = {
   tournament: {
     create: jest.fn(),
+    findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    delete: jest.fn(),
   },
   university: {
     findUnique: jest.fn(),
@@ -26,12 +30,22 @@ const mockPrismaService = {
     findFirst: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    deleteMany: jest.fn(),
   },
   $transaction: jest.fn(),
 };
 
 const mockMatchLoggingService = {
   logMatch: jest.fn(),
+};
+
+const mockNotificationsService = {
+  create: jest.fn(),
+};
+
+const mockCloudinaryService = {
+  upload: jest.fn(),
+  destroy: jest.fn(),
 };
 
 describe('TournamentsService', () => {
@@ -44,6 +58,8 @@ describe('TournamentsService', () => {
         GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MatchLoggingService, useValue: mockMatchLoggingService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
     }).compile();
 
@@ -59,22 +75,259 @@ describe('TournamentsService', () => {
 
   // create()
   describe('create()', () => {
-    it('should create a tournament and return it', async () => {
+    it('creates an ATHLETE-authored tournament as UPCOMING with no organizer', async () => {
       const dto = { name: 'Intercollegiate Cup 2026' };
-      const mockResult = {
+      mockPrismaService.tournament.create.mockResolvedValue({
         id: 'tournament-uuid',
         name: dto.name,
         status: TournamentStatus.UPCOMING,
-      };
+      });
 
-      mockPrismaService.tournament.create.mockResolvedValue(mockResult);
-
-      const result = await service.create(dto);
+      await service.create(dto, { id: 'user-1', role: Role.ATHLETE });
 
       expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
-        data: { name: dto.name },
+        data: {
+          name: dto.name,
+          gameTitle: undefined,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
+          image: undefined,
+          imagePublicId: undefined,
+          organizerId: undefined,
+          status: TournamentStatus.UPCOMING,
+        },
       });
-      expect(result).toEqual(mockResult);
+    });
+
+    it('creates an ORGANIZER-authored tournament as PENDING_APPROVAL with organizerId set', async () => {
+      const dto = { name: 'Community Cup' };
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(dto, { id: 'organizer-1', role: Role.ORGANIZER });
+
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          gameTitle: undefined,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
+          image: undefined,
+          imagePublicId: undefined,
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+
+    it('persists gameTitle, bracketFormat, teamQuota, and rules when provided', async () => {
+      const dto = {
+        name: 'Community Cup',
+        gameTitle: GameTitle.VALORANT,
+        bracketFormat: 'Single Elimination',
+        teamQuota: 8,
+        rules: 'Best of 3 semis, Bo5 finals',
+      };
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(dto, { id: 'organizer-1', role: Role.ORGANIZER });
+
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          gameTitle: dto.gameTitle,
+          bracketFormat: dto.bracketFormat,
+          teamQuota: dto.teamQuota,
+          rules: dto.rules,
+          image: undefined,
+          imagePublicId: undefined,
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+
+    it('uploads a cover image to Cloudinary when one is provided', async () => {
+      const dto = { name: 'Community Cup' };
+      const fakeFile = { buffer: Buffer.from('fake') } as Express.Multer.File;
+      mockCloudinaryService.upload.mockResolvedValue({
+        url: 'https://res.cloudinary.com/x/img.png',
+        publicId: 'collegium/tournaments/abc123',
+      });
+      mockPrismaService.tournament.create.mockResolvedValue({
+        id: 'tournament-uuid',
+        name: dto.name,
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await service.create(
+        dto,
+        { id: 'organizer-1', role: Role.ORGANIZER },
+        fakeFile,
+      );
+
+      expect(mockCloudinaryService.upload).toHaveBeenCalledWith(
+        fakeFile.buffer,
+        'collegium/tournaments',
+      );
+      expect(mockPrismaService.tournament.create).toHaveBeenCalledWith({
+        data: {
+          name: dto.name,
+          gameTitle: undefined,
+          bracketFormat: undefined,
+          teamQuota: undefined,
+          rules: undefined,
+          image: 'https://res.cloudinary.com/x/img.png',
+          imagePublicId: 'collegium/tournaments/abc123',
+          organizerId: 'organizer-1',
+          status: TournamentStatus.PENDING_APPROVAL,
+        },
+      });
+    });
+  });
+
+  // findAll()
+  describe('findAll()', () => {
+    it('excludes PENDING_APPROVAL/REJECTED by default', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findAll();
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: {
+              notIn: [
+                TournamentStatus.PENDING_APPROVAL,
+                TournamentStatus.REJECTED,
+              ],
+            },
+          },
+        }),
+      );
+    });
+
+    it('filters by the given status when provided', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findAll(TournamentStatus.PENDING_APPROVAL);
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: TournamentStatus.PENDING_APPROVAL },
+        }),
+      );
+    });
+  });
+
+  // findMine()
+  describe('findMine()', () => {
+    it('returns tournaments for the given organizer regardless of status', async () => {
+      mockPrismaService.tournament.findMany.mockResolvedValue([]);
+
+      await service.findMine('organizer-1');
+
+      expect(mockPrismaService.tournament.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizerId: 'organizer-1' },
+        }),
+      );
+    });
+  });
+
+  // updateApprovalStatus()
+  describe('updateApprovalStatus()', () => {
+    const tournamentId = 'tournament-uuid';
+
+    it('approves a pending tournament and notifies the organizer', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        name: 'Community Cup',
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+      mockPrismaService.tournament.update.mockResolvedValue({
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+      });
+
+      await service.updateApprovalStatus(
+        tournamentId,
+        TournamentStatus.UPCOMING,
+      );
+
+      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.UPCOMING, rejectionReason: null },
+      });
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'organizer-1',
+          type: 'TOURNAMENT_APPROVED',
+        }),
+      );
+    });
+
+    it('rejects a pending tournament with a reason and notifies the organizer', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        name: 'Community Cup',
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+      mockPrismaService.tournament.update.mockResolvedValue({
+        id: tournamentId,
+        status: TournamentStatus.REJECTED,
+      });
+
+      await service.updateApprovalStatus(
+        tournamentId,
+        TournamentStatus.REJECTED,
+        'Missing bracket format',
+      );
+
+      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+        data: {
+          status: TournamentStatus.REJECTED,
+          rejectionReason: 'Missing bracket format',
+        },
+      });
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'organizer-1',
+          type: 'TOURNAMENT_REJECTED',
+        }),
+      );
+    });
+
+    it('throws NotFoundException if the tournament does not exist', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateApprovalStatus(tournamentId, TournamentStatus.UPCOMING),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws BadRequestException for any status other than UPCOMING/REJECTED', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        organizerId: 'organizer-1',
+        status: TournamentStatus.PENDING_APPROVAL,
+      });
+
+      await expect(
+        service.updateApprovalStatus(tournamentId, TournamentStatus.ONGOING),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -306,6 +559,100 @@ describe('TournamentsService', () => {
       await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  // deleteTournament()
+  describe('deleteTournament()', () => {
+    const tournamentId = 'tournament-uuid';
+
+    it('deletes the tournament and its matches, and cleans up the Cloudinary asset', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        imagePublicId: 'collegium/tournaments/abc123',
+      });
+      mockPrismaService.match.deleteMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.tournament.delete.mockResolvedValue({
+        id: tournamentId,
+      });
+      mockCloudinaryService.destroy.mockResolvedValue(undefined);
+
+      await service.deleteTournament(tournamentId);
+
+      expect(mockPrismaService.match.deleteMany).toHaveBeenCalledWith({
+        where: { tournamentId },
+      });
+      expect(mockPrismaService.tournament.delete).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+      });
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'collegium/tournaments/abc123',
+      );
+    });
+
+    it('skips Cloudinary cleanup when the tournament has no image', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: tournamentId,
+        imagePublicId: null,
+      });
+      mockPrismaService.match.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrismaService.tournament.delete.mockResolvedValue({
+        id: tournamentId,
+      });
+
+      await service.deleteTournament(tournamentId);
+
+      expect(mockCloudinaryService.destroy).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException if the tournament does not exist', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
+
+      await expect(service.deleteTournament(tournamentId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  // getAllPendingApplications()
+  describe('getAllPendingApplications()', () => {
+    it('returns pending applications across tournaments, enriched with the real tournament name/game', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: 'tournament-1',
+          status: TournamentStatus.UPCOMING,
+          universities: [],
+        })
+        .mockResolvedValueOnce({
+          name: 'Community Cup',
+          gameTitle: GameTitle.VALORANT,
+        });
+      mockPrismaService.university.findUnique.mockResolvedValue({
+        id: 'uni-1',
+        name: 'University of Makati',
+      });
+
+      await service.applyForTournament('tournament-1', {
+        id: 'user-1',
+        displayName: 'Captain One',
+        universityId: 'uni-1',
+      });
+
+      const result = await service.getAllPendingApplications();
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          tournamentId: 'tournament-1',
+          status: 'PENDING',
+          tournamentName: 'Community Cup',
+          gameTitle: GameTitle.VALORANT,
+        }),
+      ]);
+    });
+
+    it('returns an empty list when nothing is pending', async () => {
+      const result = await service.getAllPendingApplications();
+      expect(result).toEqual([]);
     });
   });
 });

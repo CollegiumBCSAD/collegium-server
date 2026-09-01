@@ -18,11 +18,12 @@ import {
   ApiBearerAuth,
   ApiCookieAuth,
 } from '@nestjs/swagger';
-import * as express from 'express';
+import type * as express from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -60,11 +61,20 @@ export class AuthController {
   @Public()
   @Post('register')
   @ApiOperation({ summary: 'Register a new account (must be .edu.ph)' })
-  async register(
-    @Body() dto: RegisterDto,
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Get('verify-email')
+  @ApiOperation({ summary: 'Verify email via the token sent at registration' })
+  async verifyEmail(
+    @Req() req: express.Request,
     @Res({ passthrough: true }) res: express.Response,
   ) {
-    const tokens = await this.authService.register(dto);
+    const token = req.query.token as string;
+    const tokens = await this.authService.verifyEmail(token);
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
     res.cookie(
       REFRESH_TOKEN_COOKIE,
@@ -72,6 +82,14 @@ export class AuthController {
       REFRESH_COOKIE_OPTIONS,
     );
     return { access_token: tokens.access_token };
+  }
+
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-verification')
+  @ApiOperation({ summary: 'Resend the email verification link' })
+  async resendVerification(@Body() dto: ResendVerificationDto) {
+    return this.authService.resendVerification(dto.email);
   }
 
   @Public()

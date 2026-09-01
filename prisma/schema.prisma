@@ -10,6 +10,7 @@ enum Role {
   ATHLETE
   NON_ATHLETE
   ADMIN
+  ORGANIZER
 }
 
 enum AccountStatus {
@@ -32,9 +33,11 @@ enum MatchMode {
 }
 
 enum TournamentStatus {
+  PENDING_APPROVAL
   UPCOMING
   ONGOING
   COMPLETED
+  REJECTED
 }
 
 enum DataSource {
@@ -59,6 +62,7 @@ enum ScrimStatus {
 enum NotificationCategory {
   SCRIM
   TEAM
+  TOURNAMENT
 }
 
 enum NotificationType {
@@ -69,6 +73,8 @@ enum NotificationType {
   TEAM_JOIN_REQUEST
   TEAM_REQUEST_ACCEPTED
   TEAM_REQUEST_DECLINED
+  TOURNAMENT_APPROVED
+  TOURNAMENT_REJECTED
 }
 
 model University {
@@ -106,8 +112,9 @@ model User {
   id             String         @id @default(uuid())
   email          String         @unique
   password       String?
-  role           Role           @default(ATHLETE)
+  role           Role           @default(NON_ATHLETE)
   status         AccountStatus  @default(PENDING)
+  emailVerified  Boolean        @default(false)
   displayName    String
   universityId   String
   university     University     @relation(fields: [universityId], references: [id])
@@ -115,8 +122,10 @@ model User {
   teamMemberships TeamMember[]
   playerStats    PlayerStat[]
   refreshTokens  RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
   notifications  Notification[]
   scrimChatMessages ScrimChatMessage[]
+  organizedTournaments Tournament[] @relation("TournamentOrganizer")
   createdAt      DateTime       @default(now())
 }
 
@@ -150,6 +159,15 @@ model TeamMember {
 }
 
 model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model EmailVerificationToken {
   id        String   @id @default(uuid())
   tokenHash String   @unique
   userId    String
@@ -209,12 +227,21 @@ model Match {
 }
 
 model Tournament {
-  id           String           @id @default(uuid())
-  name         String
-  status       TournamentStatus @default(UPCOMING)
-  createdAt    DateTime         @default(now())
-  matches      Match[]
-  universities University[]
+  id              String           @id @default(uuid())
+  name            String
+  status          TournamentStatus @default(UPCOMING)
+  gameTitle       GameTitle?
+  image           String?
+  imagePublicId   String?
+  bracketFormat   String?
+  teamQuota       Int?
+  rules           String?
+  organizerId     String?
+  organizer       User?            @relation("TournamentOrganizer", fields: [organizerId], references: [id])
+  rejectionReason String?
+  createdAt       DateTime         @default(now())
+  matches         Match[]
+  universities    University[]
 }
 
 model PlayerStat {
