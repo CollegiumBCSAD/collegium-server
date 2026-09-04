@@ -23,6 +23,7 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
+import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { TournamentsService } from './tournaments.service';
 
 const IMAGE_UPLOAD_OPTIONS = {
@@ -81,6 +82,37 @@ export class TournamentsController {
     return this.tournamentsService.create(createTournamentDto, req.user, image);
   }
 
+  // PATCH /tournaments/:id — Organizer or Admin updates tournament metadata or re-applies rejected tournament
+  @Patch(':id')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @UseInterceptors(FileInterceptor('image', IMAGE_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Update tournament metadata or re-apply' })
+  update(
+    @Param('id') id: string,
+    @Body() updateTournamentDto: UpdateTournamentDto,
+    @Request() req: { user: { id: string; role: Role } },
+    @UploadedFile() image?: Express.Multer.File,
+  ) {
+    return this.tournamentsService.update(
+      id,
+      updateTournamentDto,
+      req.user,
+      image,
+    );
+  }
+
+  // POST /tournaments/:id/start — Organizer or Admin starts upcoming tournament (sets status to ONGOING/LIVE)
+  @Post(':id/start')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Start upcoming tournament and launch bracket' })
+  startTournament(
+    @Param('id') id: string,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.startTournament(id, req.user);
+  }
+
   // PATCH /tournaments/:id/status — Admin approves or rejects a pending tournament
   @Patch(':id/status')
   @Roles(Role.ADMIN)
@@ -109,10 +141,15 @@ export class TournamentsController {
   @ApiOperation({ summary: 'Apply for a tournament' })
   apply(
     @Param('id') tournamentId: string,
+    @Body() body: { teamId?: string; teamName?: string },
     @Request()
     req: { user: { id: string; displayName?: string; universityId?: string } },
   ) {
-    return this.tournamentsService.applyForTournament(tournamentId, req.user);
+    return this.tournamentsService.applyForTournament(
+      tournamentId,
+      req.user,
+      body,
+    );
   }
 
   // POST /tournaments/:id/withdraw — Athlete or squad withdraws/undoes their application
@@ -198,6 +235,13 @@ export class TournamentsController {
   @ApiOperation({ summary: 'View the tournament bracket' })
   getBracket(@Param('id') tournamentId: string) {
     return this.tournamentsService.getBracket(tournamentId);
+  }
+
+  // GET /tournaments/:id — Anyone logged in can view tournament details
+  @Get(':id')
+  @ApiOperation({ summary: 'Get tournament details by ID' })
+  findOne(@Param('id') tournamentId: string) {
+    return this.tournamentsService.findOne(tournamentId);
   }
 
   // POST /tournaments/:id/matches/:mid/confirm — Athlete submits the Riot match ID

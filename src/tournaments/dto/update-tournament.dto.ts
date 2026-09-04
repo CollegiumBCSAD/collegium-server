@@ -1,7 +1,6 @@
 import {
   IsEnum,
   IsInt,
-  IsNotEmpty,
   IsOptional,
   IsString,
   Min,
@@ -9,10 +8,10 @@ import {
 import { Type } from 'class-transformer';
 import { GameTitle } from '@prisma/client';
 
-export class CreateTournamentDto {
-  @IsNotEmpty()
+export class UpdateTournamentDto {
+  @IsOptional()
   @IsString()
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsEnum(GameTitle)
@@ -35,4 +34,8 @@ export class CreateTournamentDto {
   @IsOptional()
   @IsString()
   startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  reapply?: string;
 }

@@ -236,6 +236,7 @@ model Tournament {
   bracketFormat   String?
   teamQuota       Int?
   rules           String?
+  startDate       DateTime?
   organizerId     String?
   organizer       User?            @relation("TournamentOrganizer", fields: [organizerId], references: [id])
   rejectionReason String?
