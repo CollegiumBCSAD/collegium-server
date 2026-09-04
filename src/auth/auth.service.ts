@@ -141,6 +141,8 @@ export class AuthService {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL');
     const verifyUrl = `${frontendUrl}/verify-email?token=${rawToken}`;
 
+    this.logger.log(`[Email Verification Link] ${email} -> ${verifyUrl}`);
+
     try {
       await this.emailService.sendVerificationEmail(
         email,
