@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
+import { UpdateTournamentDto } from './dto/update-tournament.dto';
 
 export interface TournamentApplication {
   id: string;
@@ -28,6 +30,8 @@ export interface TournamentApplication {
   applicantName: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   appliedAt: Date;
+  teamId?: string;
+  teamName?: string;
 }
 
 @Injectable()
@@ -72,7 +76,7 @@ export class TournamentsService {
   // FIND MINE — Organizer's own tournaments, any status (including
   // PENDING_APPROVAL/REJECTED, which findAll() hides from the public list)
   async findMine(organizerId: string) {
-    return this.prisma.tournament.findMany({
+    const list = await this.prisma.tournament.findMany({
       where: { organizerId },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -80,6 +84,68 @@ export class TournamentsService {
         matches: true,
       },
     });
+
+    return list.map((t) => ({
+      ...t,
+      applications: this.applications.get(t.id) || [],
+    }));
+  }
+
+  // FIND ONE — Tournament details including participating universities, teams, organizer, matches, and applications
+  async findOne(id: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+      include: {
+        universities: {
+          include: {
+            teams: {
+              include: {
+                members: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        displayName: true,
+                        role: true,
+                      },
+                    },
+                  },
+                },
+                captain: {
+                  select: {
+                    id: true,
+                    displayName: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        organizer: {
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+          },
+        },
+        matches: {
+          include: {
+            winner: true,
+            loser: true,
+          },
+        },
+      },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    return {
+      ...tournament,
+      applications: this.applications.get(tournament.id) || [],
+    };
   }
 
   // CREATE — Create a new tournament.
@@ -106,6 +172,9 @@ export class TournamentsService {
         bracketFormat: createTournamentDto.bracketFormat,
         teamQuota: createTournamentDto.teamQuota,
         rules: createTournamentDto.rules,
+        startDate: createTournamentDto.startDate
+          ? new Date(createTournamentDto.startDate)
+          : undefined,
         image: uploaded?.url,
         imagePublicId: uploaded?.publicId,
         organizerId: isOrganizer ? user.id : undefined,
@@ -113,6 +182,127 @@ export class TournamentsService {
           ? TournamentStatus.PENDING_APPROVAL
           : TournamentStatus.UPCOMING,
       },
+    });
+  }
+
+  // UPDATE — Organizer or Admin edits tournament details or re-applies rejected tournament
+  async update(
+    id: string,
+    updateTournamentDto: UpdateTournamentDto,
+    user: { id: string; role: Role },
+    image?: Express.Multer.File,
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    const isOwner = tournament.organizerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'You do not have permission to edit this tournament',
+      );
+    }
+
+    const uploaded = image
+      ? await this.cloudinaryService.upload(
+          image.buffer,
+          'collegium/tournaments',
+        )
+      : null;
+
+    const isReapplying =
+      tournament.status === TournamentStatus.REJECTED ||
+      updateTournamentDto.reapply === 'true';
+
+    const newStatus = isReapplying
+      ? TournamentStatus.PENDING_APPROVAL
+      : tournament.status;
+
+    const updated = await this.prisma.tournament.update({
+      where: { id },
+      data: {
+        name: updateTournamentDto.name ?? tournament.name,
+        gameTitle: updateTournamentDto.gameTitle ?? tournament.gameTitle,
+        bracketFormat:
+          updateTournamentDto.bracketFormat ?? tournament.bracketFormat,
+        teamQuota: updateTournamentDto.teamQuota ?? tournament.teamQuota,
+        rules: updateTournamentDto.rules ?? tournament.rules,
+        startDate: updateTournamentDto.startDate
+          ? new Date(updateTournamentDto.startDate)
+          : tournament.startDate,
+        image: uploaded?.url ?? tournament.image,
+        imagePublicId: uploaded?.publicId ?? tournament.imagePublicId,
+        status: newStatus,
+        rejectionReason: isReapplying ? null : tournament.rejectionReason,
+      },
+    });
+
+    if (isReapplying) {
+      const admins = await this.prisma.user.findMany({
+        where: { role: Role.ADMIN },
+      });
+      for (const admin of admins) {
+        await this.notificationsService.create({
+          userId: admin.id,
+          category: NotificationCategory.TOURNAMENT,
+          type: NotificationType.TOURNAMENT_APPROVED,
+          title: '🔄 Tournament Resubmitted',
+          message: `Organizer resubmitted "${updated.name}" for sanctioning review.`,
+          link: '/admin/tournaments',
+          refId: updated.id,
+        });
+      }
+    }
+
+    return updated;
+  }
+
+  // START TOURNAMENT — Organizer or Admin starts an approved upcoming tournament
+  async startTournament(id: string, user: { id: string; role: Role }) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+      include: { universities: true, matches: true },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    const isOwner = tournament.organizerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'You do not have permission to start this tournament',
+      );
+    }
+
+    if (
+      tournament.status !== TournamentStatus.UPCOMING &&
+      tournament.status !== TournamentStatus.PENDING_APPROVAL
+    ) {
+      throw new BadRequestException(
+        `Cannot start tournament with status ${tournament.status}`,
+      );
+    }
+
+    if (
+      tournament.matches.length === 0 &&
+      tournament.universities.length >= 2 &&
+      tournament.universities.length % 2 === 0
+    ) {
+      return this.generateBracket(id);
+    }
+
+    return this.prisma.tournament.update({
+      where: { id },
+      data: { status: TournamentStatus.ONGOING },
     });
   }
 
@@ -171,6 +361,7 @@ export class TournamentsService {
   async applyForTournament(
     tournamentId: string,
     user: { id: string; displayName?: string; universityId?: string },
+    body?: { teamId?: string; teamName?: string },
   ) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -198,11 +389,28 @@ export class TournamentsService {
 
     const apps = this.applications.get(tournamentId) || [];
     const existing = apps.find(
-      (a) => a.userId === user.id || a.universityId === uniId,
+      (a) =>
+        a.userId === user.id ||
+        (Boolean(body?.teamId) && a.teamId === body?.teamId),
     );
+
+    let resolvedTeamName = body?.teamName;
+    if (body?.teamId && !resolvedTeamName) {
+      try {
+        const team = await this.prisma.team.findUnique({
+          where: { id: body.teamId },
+          select: { name: true },
+        });
+        if (team?.name) resolvedTeamName = team.name;
+      } catch {
+        // Ignore team query error and fallback to applicant name
+      }
+    }
 
     if (existing) {
       existing.status = 'PENDING';
+      if (body?.teamId) existing.teamId = body.teamId;
+      if (resolvedTeamName) existing.teamName = resolvedTeamName;
       return existing;
     }
 
@@ -213,6 +421,8 @@ export class TournamentsService {
       universityName: uniName,
       userId: user.id,
       applicantName: user.displayName || 'Athletic Captain',
+      teamId: body?.teamId,
+      teamName: resolvedTeamName,
       status: 'PENDING',
       appliedAt: new Date(),
     };
