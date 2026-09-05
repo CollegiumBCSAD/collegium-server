@@ -307,11 +307,11 @@ export class TournamentsService {
       );
     }
 
-    if (
-      tournament.matches.length === 0 &&
-      tournament.universities.length >= 2 &&
-      tournament.universities.length % 2 === 0
-    ) {
+    // Per-format eligibility (even count for Single/Double Elim, power-of-2
+    // for Double Elim) is enforced inside generateBracket itself — don't
+    // duplicate a stale even-only check here, it would silently skip bracket
+    // generation for Round Robin + Playoffs, which has no such requirement.
+    if (tournament.matches.length === 0 && tournament.universities.length >= 2) {
       return this.generateBracket(id);
     }
 

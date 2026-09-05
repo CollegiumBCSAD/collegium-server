@@ -386,6 +386,46 @@ describe('TournamentsService', () => {
     });
   });
 
+  // startTournament()
+  describe('startTournament()', () => {
+    const tournamentId = 'tournament-uuid';
+    const user = { id: 'organizer-uuid', role: Role.ADMIN };
+
+    it('generates the bracket for Round Robin + Playoffs with an odd university count', async () => {
+      // Regression check: startTournament used to gate bracket generation on
+      // an even university count regardless of format, which silently skipped
+      // generating a Round Robin + Playoffs bracket (it has no such
+      // requirement) and left the tournament ONGOING with zero matches.
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        organizerId: user.id,
+        status: TournamentStatus.UPCOMING,
+        bracketFormat: 'Round Robin + Playoffs',
+        matches: [],
+        universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+        bracketFormat: 'Round Robin + Playoffs',
+        universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        matches: [],
+        universities: [],
+      });
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 3 });
+      mockPrismaService.tournament.update.mockResolvedValue({});
+
+      await service.startTournament(tournamentId, user);
+
+      expect(mockPrismaService.match.createMany).toHaveBeenCalledTimes(1);
+      const { data } = mockPrismaService.match.createMany.mock.calls[0][0];
+      expect(data).toHaveLength(3); // C(3,2) round-robin pairings, no evenness required
+    });
+  });
+
   // generateBracket()
   describe('generateBracket()', () => {
     const tournamentId = 'tournament-uuid';
