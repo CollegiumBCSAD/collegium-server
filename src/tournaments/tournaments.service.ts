@@ -389,7 +389,9 @@ export class TournamentsService {
 
     const apps = this.applications.get(tournamentId) || [];
     const existing = apps.find(
-      (a) => a.userId === user.id || (Boolean(body?.teamId) && a.teamId === body?.teamId),
+      (a) =>
+        a.userId === user.id ||
+        (Boolean(body?.teamId) && a.teamId === body?.teamId),
     );
 
     let resolvedTeamName = body?.teamName;
@@ -400,7 +402,9 @@ export class TournamentsService {
           select: { name: true },
         });
         if (team?.name) resolvedTeamName = team.name;
-      } catch {}
+      } catch {
+        // Ignore team query error and fallback to applicant name
+      }
     }
 
     if (existing) {
