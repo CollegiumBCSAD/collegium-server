@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BracketSide,
   GameTitle,
   MatchMode,
   NotificationCategory,
@@ -20,6 +21,20 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { ConfirmMatchDto } from './dto/confirm-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
+
+interface BracketMatchRow {
+  id: string;
+  round: number;
+  bracketSide: BracketSide | null;
+  winnerId: string | null;
+  loserId: string | null;
+  isVerified: boolean;
+}
+
+type LosersBracketStep =
+  | { type: 'seed'; consumesWbRound: number }
+  | { type: 'pure' }
+  | { type: 'merge'; consumesWbRound: number };
 
 export interface TournamentApplication {
   id: string;
@@ -600,7 +615,8 @@ export class TournamentsService {
     return tournament;
   }
 
-  // GENERATE BRACKET — Pair registered universities into matches
+  // GENERATE BRACKET — Seed the tournament's matches according to its bracketFormat.
+  // "Single Elimination" is the default when bracketFormat is unset/unrecognized.
   async generateBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -625,65 +641,31 @@ export class TournamentsService {
       );
     }
 
-    if (universities.length % 2 !== 0) {
-      throw new BadRequestException(
-        'An even number of universities is required to generate a bracket',
+    if (tournament.bracketFormat === 'Round Robin + Playoffs') {
+      await this.generateRoundRobinStage(tournamentId, universities);
+    } else if (tournament.bracketFormat === 'Double Elimination') {
+      await this.generateDoubleEliminationRound1(tournamentId, universities);
+    } else {
+      this.assertEvenContestants(universities.length);
+      await this.createRound(
+        tournamentId,
+        this.shuffle(universities).map((u) => u.id),
+        1,
+        null,
       );
     }
 
-    // Shuffle universities randomly for fair seeding
-    const shuffled = [...universities].sort(() => Math.random() - 0.5);
-
-    // Pair them up into matches (university[0] vs university[1], etc.)
-    const matchPairs: { winnerId: string; loserId: string }[] = [];
-    for (let i = 0; i < shuffled.length; i += 2) {
-      matchPairs.push({
-        winnerId: shuffled[i].id,
-        loserId: shuffled[i + 1].id,
-      });
-    }
-
-    // Create placeholder match records in a transaction
-    // winner/loser are placeholders until the match is confirmed
-    await this.prisma.$transaction(async (tx) => {
-      for (const pair of matchPairs) {
-        await tx.match.create({
-          data: {
-            title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
-            matchMode: MatchMode.TOURNAMENT,
-            tournamentId: tournament.id,
-            gameDuration: 0,
-            gameMode: 'CLASSIC',
-            platformId: 'PH',
-            winnerId: pair.winnerId,
-            loserId: pair.loserId,
-            isVerified: false,
-          },
-        });
-      }
-
-      // Move tournament to ONGOING now that bracket is set
-      await tx.tournament.update({
-        where: { id: tournamentId },
-        data: { status: TournamentStatus.ONGOING },
-      });
-    });
-
-    // Return the full bracket for the response
-    return this.prisma.tournament.findUnique({
+    // Move tournament to ONGOING now that the bracket is seeded
+    await this.prisma.tournament.update({
       where: { id: tournamentId },
-      include: {
-        matches: {
-          include: {
-            playerStats: true,
-          },
-        },
-        universities: true,
-      },
+      data: { status: TournamentStatus.ONGOING },
     });
+
+    return this.getBracket(tournamentId);
   }
 
-  // GET BRACKET — Fetch tournament with all matches
+  // GET BRACKET — Fetch tournament with all matches, ordered so the frontend
+  // can group them into rounds/bracket sides without re-deriving order itself.
   async getBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -692,6 +674,7 @@ export class TournamentsService {
           include: {
             playerStats: true,
           },
+          orderBy: [{ round: 'asc' }, { playedAt: 'asc' }],
         },
         universities: true,
       },
@@ -702,6 +685,336 @@ export class TournamentsService {
     }
 
     return tournament;
+  }
+
+  // --- Bracket generation & advancement helpers -----------------------------
+
+  private assertEvenContestants(count: number) {
+    if (count % 2 !== 0) {
+      throw new BadRequestException(
+        'An even number of universities is required to generate a bracket',
+      );
+    }
+  }
+
+  private isPowerOfTwo(n: number) {
+    return n >= 4 && (n & (n - 1)) === 0;
+  }
+
+  private shuffle<T>(list: T[]): T[] {
+    return [...list].sort(() => Math.random() - 0.5);
+  }
+
+  private pairUp<T>(list: T[]): [T, T][] {
+    const pairs: [T, T][] = [];
+    for (let i = 0; i < list.length; i += 2) {
+      pairs.push([list[i], list[i + 1]]);
+    }
+    return pairs;
+  }
+
+  private matchRow(
+    tournamentId: string,
+    winnerId: string,
+    loserId: string,
+    round: number,
+    bracketSide: BracketSide | null,
+  ) {
+    return {
+      title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
+      matchMode: MatchMode.TOURNAMENT,
+      tournamentId,
+      gameDuration: 0,
+      gameMode: 'CLASSIC',
+      platformId: 'PH',
+      winnerId,
+      loserId,
+      isVerified: false,
+      round,
+      bracketSide: bracketSide ?? undefined,
+    };
+  }
+
+  // Pairs up a flat contestant list (winnerId/loserId are placeholder pairing
+  // slots, not a real result, exactly like the original generateBracket) into
+  // matches for one round/bracket side.
+  private async createRound(
+    tournamentId: string,
+    contestantIds: string[],
+    round: number,
+    bracketSide: BracketSide | null,
+  ) {
+    const pairs = this.pairUp(contestantIds);
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) =>
+        this.matchRow(tournamentId, a, b, round, bracketSide),
+      ),
+    });
+  }
+
+  // ROUND ROBIN — every university plays every other university once, all at round 0.
+  private async generateRoundRobinStage(
+    tournamentId: string,
+    universities: { id: string }[],
+  ) {
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < universities.length; i++) {
+      for (let j = i + 1; j < universities.length; j++) {
+        pairs.push([universities[i].id, universities[j].id]);
+      }
+    }
+
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) => this.matchRow(tournamentId, a, b, 0, null)),
+    });
+  }
+
+  // Once every round-0 match is verified, seed a single-elim playoff bracket
+  // from the group standings (most wins first), seeded best-vs-worst.
+  private async seedPlayoffs(
+    tournamentId: string,
+    groupMatches: BracketMatchRow[],
+  ) {
+    const wins = new Map<string, number>();
+    for (const m of groupMatches) {
+      if (m.winnerId) wins.set(m.winnerId, (wins.get(m.winnerId) ?? 0) + 1);
+      if (m.loserId && !wins.has(m.loserId)) wins.set(m.loserId, 0);
+    }
+
+    const ranked = [...wins.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => id);
+
+    // Playoffs need a power-of-2 field; drop the lowest seeds that don't fit.
+    let bracketSize = 2;
+    while (bracketSize * 2 <= ranked.length) bracketSize *= 2;
+
+    const seeded = ranked.slice(0, bracketSize);
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < bracketSize / 2; i++) {
+      pairs.push([seeded[i], seeded[bracketSize - 1 - i]]);
+    }
+
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) => this.matchRow(tournamentId, a, b, 1, null)),
+    });
+  }
+
+  // DOUBLE ELIMINATION — winners-bracket round 1. Requires a power-of-2 field
+  // (>=4) so the losers-bracket schedule below divides evenly at every step.
+  private async generateDoubleEliminationRound1(
+    tournamentId: string,
+    universities: { id: string }[],
+  ) {
+    if (!this.isPowerOfTwo(universities.length)) {
+      throw new BadRequestException(
+        'Double Elimination requires a number of registered universities that is a power of 2, 4 or more (4, 8, 16...)',
+      );
+    }
+
+    await this.createRound(
+      tournamentId,
+      this.shuffle(universities).map((u) => u.id),
+      1,
+      BracketSide.WINNERS,
+    );
+  }
+
+  // Standard double-elimination losers-bracket schedule for k winners-bracket
+  // rounds: LB round 1 seeds directly from WB round 1's losers, then
+  // alternates a "pure" survivor-vs-survivor round with a "merge" round that
+  // pulls in each subsequent WB round's losers, ending with the LB final that
+  // feeds the grand final.
+  // ponytail: no bracket-reset if the losers-bracket champion beats the
+  // winners-bracket champion in the grand final (real double-elim would force
+  // a second match, since the WB champion still has zero losses) — add a
+  // second grand-final match on that outcome if this needs to be
+  // tournament-official rather than casual.
+  private losersBracketSchedule(wbRounds: number): LosersBracketStep[] {
+    const schedule: LosersBracketStep[] = [{ type: 'seed', consumesWbRound: 1 }];
+    for (let r = 2; r <= wbRounds; r++) {
+      if (r > 2) schedule.push({ type: 'pure' });
+      schedule.push({ type: 'merge', consumesWbRound: r });
+    }
+    return schedule;
+  }
+
+  // Called after every match close — advances whichever bracket(s) have just
+  // had their current round/stage fully verified. Idempotent: every branch
+  // only creates a round once its inputs are ready and it doesn't already exist.
+  private async tryAdvanceBracket(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { status: true, bracketFormat: true },
+    });
+
+    if (!tournament || tournament.status !== TournamentStatus.ONGOING) return;
+
+    const matches = await this.prisma.match.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        round: true,
+        bracketSide: true,
+        winnerId: true,
+        loserId: true,
+        isVerified: true,
+      },
+    });
+
+    if (matches.length === 0) return;
+
+    if (tournament.bracketFormat === 'Double Elimination') {
+      await this.advanceDoubleElimination(tournamentId, matches);
+    } else {
+      await this.advanceEliminationLike(tournamentId, matches);
+    }
+  }
+
+  // Drives both plain Single Elimination and the playoff portion of Round
+  // Robin + Playoffs (round 0 is the round-robin group stage; once it's fully
+  // verified this seeds the single-elim playoff bracket from standings).
+  private async advanceEliminationLike(
+    tournamentId: string,
+    matches: BracketMatchRow[],
+  ) {
+    const maxRound = Math.max(...matches.map((m) => m.round));
+    const currentRound = matches.filter((m) => m.round === maxRound);
+
+    if (!currentRound.every((m) => m.isVerified)) return;
+
+    if (maxRound === 0) {
+      await this.seedPlayoffs(tournamentId, currentRound);
+      return;
+    }
+
+    const winners = currentRound
+      .map((m) => m.winnerId)
+      .filter((id): id is string => !!id);
+
+    if (winners.length <= 1) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.COMPLETED },
+      });
+      return;
+    }
+
+    await this.createRound(tournamentId, winners, maxRound + 1, null);
+  }
+
+  private async advanceDoubleElimination(
+    tournamentId: string,
+    matches: BracketMatchRow[],
+  ) {
+    const wb = matches.filter((m) => m.bracketSide === BracketSide.WINNERS);
+    const lb = matches.filter((m) => m.bracketSide === BracketSide.LOSERS);
+    const gf = matches.filter((m) => m.bracketSide === BracketSide.GRAND_FINAL);
+    const wbByRound = (r: number) => wb.filter((m) => m.round === r);
+
+    // 1. Advance the winners bracket; capture its champion once it's down to one.
+    const wbRoundsCount = Math.max(...wb.map((m) => m.round));
+    const currentWb = wbByRound(wbRoundsCount);
+    let wbChampion: string | null = null;
+
+    if (currentWb.every((m) => m.isVerified)) {
+      const winners = currentWb
+        .map((m) => m.winnerId)
+        .filter((id): id is string => !!id);
+      if (winners.length > 1) {
+        await this.createRound(
+          tournamentId,
+          winners,
+          wbRoundsCount + 1,
+          BracketSide.WINNERS,
+        );
+      } else {
+        wbChampion = winners[0] ?? null;
+      }
+    }
+
+    // 2. Advance the losers bracket per the precomputed schedule.
+    const schedule = this.losersBracketSchedule(wbRoundsCount);
+    const lbRoundsDone = Math.max(0, ...lb.map((m) => m.round));
+    let lbChampion: string | null = null;
+
+    if (lbRoundsDone >= schedule.length) {
+      const finalLb = lb.filter((m) => m.round === lbRoundsDone);
+      if (finalLb.length === 1 && finalLb.every((m) => m.isVerified)) {
+        lbChampion = finalLb[0].winnerId;
+      }
+    } else {
+      const step = schedule[lbRoundsDone];
+      const nextRound = lbRoundsDone + 1;
+
+      if (step.type === 'seed') {
+        const wbSource = wbByRound(step.consumesWbRound);
+        if (wbSource.length > 0 && wbSource.every((m) => m.isVerified)) {
+          const losers = wbSource
+            .map((m) => m.loserId)
+            .filter((id): id is string => !!id);
+          if (losers.length > 1) {
+            await this.createRound(
+              tournamentId,
+              losers,
+              nextRound,
+              BracketSide.LOSERS,
+            );
+          }
+        }
+      } else {
+        const prevLb = lb.filter((m) => m.round === lbRoundsDone);
+        if (prevLb.length > 0 && prevLb.every((m) => m.isVerified)) {
+          const survivors = prevLb
+            .map((m) => m.winnerId)
+            .filter((id): id is string => !!id);
+
+          if (step.type === 'pure') {
+            if (survivors.length > 1) {
+              await this.createRound(
+                tournamentId,
+                survivors,
+                nextRound,
+                BracketSide.LOSERS,
+              );
+            }
+          } else {
+            const wbSource = wbByRound(step.consumesWbRound);
+            if (wbSource.length > 0 && wbSource.every((m) => m.isVerified)) {
+              const newLosers = wbSource
+                .map((m) => m.loserId)
+                .filter((id): id is string => !!id);
+              if (survivors.length === newLosers.length && survivors.length > 0) {
+                const pairs = survivors.map(
+                  (s, i) => [s, newLosers[i]] as [string, string],
+                );
+                await this.prisma.match.createMany({
+                  data: pairs.map(([a, b]) =>
+                    this.matchRow(tournamentId, a, b, nextRound, BracketSide.LOSERS),
+                  ),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Once both champions exist, create the grand final; once it's
+    // verified, the tournament is over.
+    if (wbChampion && lbChampion && gf.length === 0) {
+      await this.createRound(
+        tournamentId,
+        [wbChampion, lbChampion],
+        wbRoundsCount + 1,
+        BracketSide.GRAND_FINAL,
+      );
+    } else if (gf.length === 1 && gf[0].isVerified) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.COMPLETED },
+      });
+    }
   }
 
   // CONFIRM MATCH — Coach submits the Riot matchId, triggers LoL pipeline
@@ -823,10 +1136,14 @@ export class TournamentsService {
       });
     }
 
-    return this.prisma.match.update({
+    const closed = await this.prisma.match.update({
       where: { id: matchId },
       data: { isVerified: true },
     });
+
+    await this.tryAdvanceBracket(tournamentId);
+
+    return closed;
   }
 
   // DELETE — Delete or remove a tournament
