@@ -415,6 +415,19 @@ export class AuthService {
       },
     });
 
+    // Also sync the updated handle across existing squad rosters for this game title
+    await this.prisma.teamMember.updateMany({
+      where: {
+        userId,
+        team: {
+          gameTitle: dto.gameTitle,
+        },
+      },
+      data: {
+        gameHandle: dto.handle.trim(),
+      },
+    });
+
     return gameHandle;
   }
 

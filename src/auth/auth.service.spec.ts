@@ -49,6 +49,9 @@ const mockPrismaService = {
   userGameHandle: {
     upsert: jest.fn(),
   },
+  teamMember: {
+    updateMany: jest.fn(),
+  },
 };
 
 const mockJwtService = {
@@ -610,6 +613,13 @@ describe('AuthService', () => {
         },
         update: { handle: 'TenZ#NA1' },
         create: { userId: 'user-1', gameTitle: 'VALORANT', handle: 'TenZ#NA1' },
+      });
+      expect(mockPrismaService.teamMember.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          team: { gameTitle: 'VALORANT' },
+        },
+        data: { gameHandle: 'TenZ#NA1' },
       });
     });
 
