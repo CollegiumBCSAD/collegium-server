@@ -2,12 +2,10 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BracketSide,
-  MatchMode,
   TournamentStatus,
   GameTitle,
   Role,
 } from '@prisma/client';
-import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -40,11 +38,14 @@ const mockPrismaService = {
     update: jest.fn(),
     deleteMany: jest.fn(),
   },
+  playerStat: {
+    createMany: jest.fn(),
+  },
+  universityGameRating: {
+    upsert: jest.fn(),
+    update: jest.fn(),
+  },
   $transaction: jest.fn(),
-};
-
-const mockMatchLoggingService = {
-  logMatch: jest.fn(),
 };
 
 const mockNotificationsService = {
@@ -65,7 +66,6 @@ describe('TournamentsService', () => {
         TournamentsService,
         GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
-        { provide: MatchLoggingService, useValue: mockMatchLoggingService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
@@ -75,6 +75,19 @@ describe('TournamentsService', () => {
 
     // Reset all mocks before each test so they don't bleed into each other
     jest.clearAllMocks();
+
+    // Sane default so closeMatch()'s Glicko rating lookups resolve to a
+    // valid rating object unless a specific test overrides them.
+    mockPrismaService.universityGameRating.upsert.mockImplementation(
+      ({ create }: { create: { universityId: string } }) => ({
+        id: `rating-${create.universityId}`,
+        glicko2_rating: 1500,
+        glicko2_rd: 350,
+        glicko2_sigma: 0.06,
+      }),
+    );
+    mockPrismaService.universityGameRating.update.mockResolvedValue({});
+    mockPrismaService.playerStat.createMany.mockResolvedValue({ count: 0 });
   });
 
   it('should be defined', () => {
@@ -572,12 +585,18 @@ describe('TournamentsService', () => {
     const tournamentId = 'tournament-uuid';
     const matchId = 'match-2';
 
+    const closeDto = {
+      winnerId: 'uni-a',
+      players: [{ universityId: 'uni-a', name: 'Player 1', kills: 5, deaths: 1, assists: 3 }],
+    };
+
     it('advances to the next single-elimination round once the current round is fully verified', async () => {
       const mockMatch = {
         id: matchId,
         tournamentId,
         isVerified: false,
-        riotMatchId: 'SEA_1',
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
       };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
       mockPrismaService.match.update.mockResolvedValue({
@@ -594,7 +613,7 @@ describe('TournamentsService', () => {
       ]);
       mockPrismaService.match.createMany.mockResolvedValue({ count: 1 });
 
-      await service.closeMatch(tournamentId, matchId);
+      await service.closeMatch(tournamentId, matchId, closeDto);
 
       expect(mockPrismaService.match.createMany).toHaveBeenCalledWith({
         data: expect.arrayContaining([
@@ -608,7 +627,8 @@ describe('TournamentsService', () => {
         id: matchId,
         tournamentId,
         isVerified: false,
-        riotMatchId: 'SEA_1',
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
       };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
       mockPrismaService.match.update.mockResolvedValue({
@@ -623,7 +643,7 @@ describe('TournamentsService', () => {
         { id: 'gf', round: 3, bracketSide: null, winnerId: 'uni-a', loserId: 'uni-b', isVerified: true },
       ]);
 
-      await service.closeMatch(tournamentId, matchId);
+      await service.closeMatch(tournamentId, matchId, closeDto);
 
       expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
         where: { id: tournamentId },
@@ -658,98 +678,84 @@ describe('TournamentsService', () => {
     });
   });
 
-  // confirmMatch()
-  describe('confirmMatch()', () => {
-    const tournamentId = 'tournament-uuid';
-    const matchId = 'match-uuid';
-    const dto = { riotMatchId: 'SEA_12345' };
-
-    it('should confirm a match and trigger the Riot pipeline', async () => {
-      const mockMatch = {
-        id: matchId,
-        tournamentId,
-        isVerified: false,
-        riotMatchId: null,
-        title: GameTitle.LOL,
-      };
-      const mockUpdated = { ...mockMatch, riotMatchId: dto.riotMatchId };
-
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-      mockMatchLoggingService.logMatch.mockResolvedValue(undefined);
-      mockPrismaService.match.update.mockResolvedValue(mockUpdated);
-      mockPrismaService.match.findUnique.mockResolvedValue(mockUpdated);
-
-      const result = await service.confirmMatch(tournamentId, matchId, dto);
-
-      expect(mockMatchLoggingService.logMatch).toHaveBeenCalledWith(
-        GameTitle.LOL,
-        dto.riotMatchId,
-        MatchMode.TOURNAMENT,
-        true,
-        matchId,
-      );
-      expect(result!.riotMatchId).toEqual(dto.riotMatchId);
-    });
-
-    it('should throw NotFoundException if match is not found', async () => {
-      mockPrismaService.match.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.confirmMatch(tournamentId, matchId, dto),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException if match is already confirmed', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: true };
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-
-      await expect(
-        service.confirmMatch(tournamentId, matchId, dto),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
   // closeMatch()
   describe('closeMatch()', () => {
     const tournamentId = 'tournament-uuid';
     const matchId = 'match-uuid';
+    const closeDto = {
+      winnerId: 'uni-a',
+      players: [
+        { universityId: 'uni-a', name: 'Player 1', kills: 10, deaths: 2, assists: 5 },
+        { universityId: 'uni-b', name: 'Player 2', kills: 3, deaths: 8, assists: 1 },
+      ],
+    };
 
-    it('should close a confirmed match successfully', async () => {
+    it('closes a match by writing the organizer-picked winner and per-player stats', async () => {
       const mockMatch = {
         id: matchId,
         tournamentId,
         isVerified: false,
-        riotMatchId: 'SEA_12345',
+        winnerId: 'uni-a', // pairing slot from generateBracket, not a real result yet
+        loserId: 'uni-b',
+        title: GameTitle.LOL,
       };
-      const mockClosed = { ...mockMatch, isVerified: true };
-
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-      mockPrismaService.match.update.mockResolvedValue(mockClosed);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...mockMatch,
+        isVerified: true,
+      });
 
-      const result = await service.closeMatch(tournamentId, matchId);
+      const result = await service.closeMatch(tournamentId, matchId, closeDto);
+
+      expect(mockPrismaService.playerStat.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            universityId: 'uni-a',
+            summonerName: 'Player 1',
+            win: true,
+            dataSource: 'PEER_VERIFIED',
+          }),
+          expect.objectContaining({
+            universityId: 'uni-b',
+            summonerName: 'Player 2',
+            win: false,
+            dataSource: 'PEER_VERIFIED',
+          }),
+        ],
+      });
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: matchId },
+        data: { winnerId: 'uni-a', loserId: 'uni-b', isVerified: true },
+      });
       expect(result.isVerified).toBe(true);
+    });
+
+    it('writes the flipped winner/loser when the organizer picks the other team', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a', // pairing slot only — organizer picks uni-b as the real winner below
+        loserId: 'uni-b',
+        title: GameTitle.LOL,
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+      mockPrismaService.match.update.mockResolvedValue({ ...mockMatch, isVerified: true });
+
+      await service.closeMatch(tournamentId, matchId, { ...closeDto, winnerId: 'uni-b' });
+
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: matchId },
+        data: { winnerId: 'uni-b', loserId: 'uni-a', isVerified: true },
+      });
     });
 
     it('should throw NotFoundException if match does not exist', async () => {
       mockPrismaService.match.findFirst.mockResolvedValue(null);
 
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw BadRequestException if match has no riotMatchId (not yet confirmed)', async () => {
-      const mockMatch = {
-        id: matchId,
-        tournamentId,
-        isVerified: false,
-        riotMatchId: null,
-      };
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.closeMatch(tournamentId, matchId, closeDto),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException if match is already closed', async () => {
@@ -757,13 +763,47 @@ describe('TournamentsService', () => {
         id: matchId,
         tournamentId,
         isVerified: true,
-        riotMatchId: 'SEA_12345',
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
       };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
 
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.closeMatch(tournamentId, matchId, closeDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if winnerId is not one of the two universities in the match', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+
+      await expect(
+        service.closeMatch(tournamentId, matchId, { ...closeDto, winnerId: 'uni-zzz' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if a player is attributed to a university not in the match', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          winnerId: 'uni-a',
+          players: [{ universityId: 'uni-zzz', name: 'Ghost', kills: 0, deaths: 0, assists: 0 }],
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

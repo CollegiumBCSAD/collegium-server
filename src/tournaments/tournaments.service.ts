@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   BracketSide,
+  DataSource,
   GameTitle,
   MatchMode,
   NotificationCategory,
@@ -13,12 +14,11 @@ import {
   Role,
   TournamentStatus,
 } from '@prisma/client';
-import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GlickoService } from '../universities/glicko.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { ConfirmMatchDto } from './dto/confirm-match.dto';
+import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 
@@ -55,7 +55,6 @@ export class TournamentsService {
 
   constructor(
     private prisma: PrismaService,
-    private matchLoggingService: MatchLoggingService,
     private glickoService: GlickoService,
     private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
@@ -1017,128 +1016,112 @@ export class TournamentsService {
     }
   }
 
-  // CONFIRM MATCH — Coach submits the Riot matchId, triggers LoL pipeline
-  async confirmMatch(
-    tournamentId: string,
-    matchId: string,
-    dto: ConfirmMatchDto,
-  ) {
+  // CLOSE MATCH — Admin/Organizer manually reports the winner and per-player
+  // stats for a match (no Riot API involved), verifying it and running ratings.
+  async closeMatch(tournamentId: string, matchId: string, dto: CloseMatchDto) {
     const match = await this.prisma.match.findFirst({
       where: { id: matchId, tournamentId },
     });
 
     if (!match) {
       throw new NotFoundException('Match not found in this tournament');
-    }
-
-    if (match.isVerified) {
-      throw new BadRequestException('This match has already been confirmed');
-    }
-
-    // Trigger the existing match-logging pipeline, passing the bracket's matchId
-    await this.matchLoggingService.logMatch(
-      match.title,
-      dto.riotMatchId,
-      MatchMode.TOURNAMENT,
-      true, // CHANGED TO TRUE FOR MVP TESTING
-      matchId, // Pass the existing database Match ID so it updates instead of creating!
-    );
-
-    // Return the updated match with its new player stats
-    return this.prisma.match.findUnique({
-      where: { id: matchId },
-      include: {
-        playerStats: true,
-      },
-    });
-  }
-
-  // CLOSE MATCH — Admin marks match as verified; ready for ranking
-  async closeMatch(tournamentId: string, matchId: string) {
-    const match = await this.prisma.match.findFirst({
-      where: { id: matchId, tournamentId },
-    });
-
-    if (!match) {
-      throw new NotFoundException('Match not found in this tournament');
-    }
-
-    if (!match.riotMatchId) {
-      throw new BadRequestException(
-        'Match cannot be closed before it is confirmed with a Riot match ID',
-      );
     }
 
     if (match.isVerified) {
       throw new BadRequestException('This match is already closed');
     }
 
-    if (match.winnerId && match.loserId) {
-      const winnerRating = await this.prisma.universityGameRating.upsert({
-        where: {
-          universityId_gameTitle: {
-            universityId: match.winnerId,
-            gameTitle: match.title,
-          },
-        },
-        create: {
-          universityId: match.winnerId,
-          gameTitle: match.title,
-        },
-        update: {},
-      });
+    // The two universities paired into this match at bracket-generation time
+    // are the only valid winner/player sides — winnerId/loserId here are
+    // still just the pairing slots until this call assigns the real result.
+    const contestants = [match.winnerId, match.loserId].filter(
+      (id): id is string => !!id,
+    );
 
-      const loserRating = await this.prisma.universityGameRating.upsert({
-        where: {
-          universityId_gameTitle: {
-            universityId: match.loserId,
-            gameTitle: match.title,
-          },
-        },
-        create: {
-          universityId: match.loserId,
-          gameTitle: match.title,
-        },
-        update: {},
-      });
-
-      const result = this.glickoService.calculateMatch(
-        {
-          rating: winnerRating.glicko2_rating,
-          rd: winnerRating.glicko2_rd,
-          sigma: winnerRating.glicko2_sigma,
-        },
-        {
-          rating: loserRating.glicko2_rating,
-          rd: loserRating.glicko2_rd,
-          sigma: loserRating.glicko2_sigma,
-        },
+    if (!contestants.includes(dto.winnerId)) {
+      throw new BadRequestException(
+        'winnerId must be one of the two universities in this match',
       );
-
-      await this.prisma.universityGameRating.update({
-        where: { id: winnerRating.id },
-        data: {
-          glicko2_rating: result.winner.rating,
-          glicko2_rd: result.winner.rd,
-          glicko2_sigma: result.winner.sigma,
-          wins: { increment: 1 },
-        },
-      });
-
-      await this.prisma.universityGameRating.update({
-        where: { id: loserRating.id },
-        data: {
-          glicko2_rating: result.loser.rating,
-          glicko2_rd: result.loser.rd,
-          glicko2_sigma: result.loser.sigma,
-          losses: { increment: 1 },
-        },
-      });
     }
+
+    const loserId = contestants.find((id) => id !== dto.winnerId)!;
+
+    for (const player of dto.players) {
+      if (!contestants.includes(player.universityId)) {
+        throw new BadRequestException(
+          `Player university ${player.universityId} is not one of the two universities in this match`,
+        );
+      }
+    }
+
+    const winnerRating = await this.prisma.universityGameRating.upsert({
+      where: {
+        universityId_gameTitle: {
+          universityId: dto.winnerId,
+          gameTitle: match.title,
+        },
+      },
+      create: { universityId: dto.winnerId, gameTitle: match.title },
+      update: {},
+    });
+
+    const loserRating = await this.prisma.universityGameRating.upsert({
+      where: {
+        universityId_gameTitle: { universityId: loserId, gameTitle: match.title },
+      },
+      create: { universityId: loserId, gameTitle: match.title },
+      update: {},
+    });
+
+    const result = this.glickoService.calculateMatch(
+      {
+        rating: winnerRating.glicko2_rating,
+        rd: winnerRating.glicko2_rd,
+        sigma: winnerRating.glicko2_sigma,
+      },
+      {
+        rating: loserRating.glicko2_rating,
+        rd: loserRating.glicko2_rd,
+        sigma: loserRating.glicko2_sigma,
+      },
+    );
+
+    await this.prisma.universityGameRating.update({
+      where: { id: winnerRating.id },
+      data: {
+        glicko2_rating: result.winner.rating,
+        glicko2_rd: result.winner.rd,
+        glicko2_sigma: result.winner.sigma,
+        wins: { increment: 1 },
+      },
+    });
+
+    await this.prisma.universityGameRating.update({
+      where: { id: loserRating.id },
+      data: {
+        glicko2_rating: result.loser.rating,
+        glicko2_rd: result.loser.rd,
+        glicko2_sigma: result.loser.sigma,
+        losses: { increment: 1 },
+      },
+    });
+
+    await this.prisma.playerStat.createMany({
+      data: dto.players.map((player) => ({
+        matchId,
+        universityId: player.universityId,
+        summonerName: player.name,
+        kills: player.kills,
+        deaths: player.deaths,
+        assists: player.assists,
+        win: player.universityId === dto.winnerId,
+        dataSource: DataSource.PEER_VERIFIED,
+      })),
+    });
 
     const closed = await this.prisma.match.update({
       where: { id: matchId },
-      data: { isVerified: true },
+      data: { winnerId: dto.winnerId, loserId, isVerified: true },
     });
 
     await this.tryAdvanceBracket(tournamentId);
