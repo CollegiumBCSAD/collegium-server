@@ -1102,6 +1102,7 @@ export class TournamentsService {
       data: dto.players.map((player) => ({
         matchId,
         universityId: player.universityId,
+        userId: player.userId,
         summonerName: player.name,
         kills: player.kills,
         deaths: player.deaths,

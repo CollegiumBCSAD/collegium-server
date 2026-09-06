@@ -4,6 +4,7 @@ import {
   IsArray,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUUID,
   Min,
@@ -13,6 +14,10 @@ import {
 export class ClosePlayerStatDto {
   @IsUUID()
   universityId: string;
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
 
   @IsNotEmpty()
   @IsString()
