@@ -7,7 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, GameTitle, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -599,7 +599,7 @@ describe('AuthService', () => {
       });
 
       const result = await service.updateGameHandle('user-1', {
-        gameTitle: 'VALORANT' as any,
+        gameTitle: 'VALORANT',
         handle: 'TenZ#NA1',
       });
 
@@ -627,7 +627,7 @@ describe('AuthService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
       await expect(
         service.updateGameHandle('invalid', {
-          gameTitle: 'VALORANT' as any,
+          gameTitle: GameTitle.VALORANT,
           handle: 'TenZ#NA1',
         }),
       ).rejects.toThrow(UnauthorizedException);

@@ -109,7 +109,7 @@ export class TeamsService {
         members: {
           create: {
             userId: dto.captainId,
-            gameHandle: dto.gameHandle,
+            gameHandle: dto.gameHandle.trim(),
             preferredRole: dto.preferredRole,
             status: TeamMemberStatus.ACCEPTED,
           },
@@ -226,7 +226,7 @@ export class TeamsService {
       data: {
         teamId,
         userId: dto.userId,
-        gameHandle: dto.gameHandle,
+        gameHandle: dto.gameHandle.trim(),
         preferredRole: dto.preferredRole,
         status: memberStatus,
       },

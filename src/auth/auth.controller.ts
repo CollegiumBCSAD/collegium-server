@@ -211,7 +211,9 @@ export class AuthController {
   @Patch('me/game-handles')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Update or set in-game handle (IGN) for a game title' })
+  @ApiOperation({
+    summary: 'Update or set in-game handle (IGN) for a game title',
+  })
   async updateGameHandle(
     @Req() req: express.Request,
     @Body() dto: UpdateGameHandleDto,

@@ -249,7 +249,8 @@ export class TournamentsController {
   @Post(':id/matches/:mid/close')
   @Roles(Role.ADMIN, Role.ORGANIZER)
   @ApiOperation({
-    summary: 'Report the winner and stats for a match, closing and verifying it',
+    summary:
+      'Report the winner and stats for a match, closing and verifying it',
   })
   closeMatch(
     @Param('id') tournamentId: string,

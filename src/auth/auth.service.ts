@@ -398,6 +398,12 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    if (user.role === Role.ORGANIZER || user.role === Role.ADMIN) {
+      throw new ForbiddenException(
+        'Organizers and Administrators cannot manage athlete game handles.',
+      );
+    }
+
     const gameHandle = await this.prisma.userGameHandle.upsert({
       where: {
         userId_gameTitle: {

@@ -350,7 +350,10 @@ export class TournamentsService {
     // for Double Elim) is enforced inside generateBracket itself — don't
     // duplicate a stale even-only check here, it would silently skip bracket
     // generation for Round Robin + Playoffs, which has no such requirement.
-    if (tournament.matches.length === 0 && tournament.universities.length >= 2) {
+    if (
+      tournament.matches.length === 0 &&
+      tournament.universities.length >= 2
+    ) {
       return this.generateBracket(id);
     }
 
@@ -823,7 +826,9 @@ export class TournamentsService {
   // second grand-final match on that outcome if this needs to be
   // tournament-official rather than casual.
   private losersBracketSchedule(wbRounds: number): LosersBracketStep[] {
-    const schedule: LosersBracketStep[] = [{ type: 'seed', consumesWbRound: 1 }];
+    const schedule: LosersBracketStep[] = [
+      { type: 'seed', consumesWbRound: 1 },
+    ];
     for (let r = 2; r <= wbRounds; r++) {
       if (r > 2) schedule.push({ type: 'pure' });
       schedule.push({ type: 'merge', consumesWbRound: r });
@@ -976,13 +981,22 @@ export class TournamentsService {
               const newLosers = wbSource
                 .map((m) => m.loserId)
                 .filter((id): id is string => !!id);
-              if (survivors.length === newLosers.length && survivors.length > 0) {
+              if (
+                survivors.length === newLosers.length &&
+                survivors.length > 0
+              ) {
                 const pairs = survivors.map(
                   (s, i) => [s, newLosers[i]] as [string, string],
                 );
                 await this.prisma.match.createMany({
                   data: pairs.map(([a, b]) =>
-                    this.matchRow(tournamentId, a, b, nextRound, BracketSide.LOSERS),
+                    this.matchRow(
+                      tournamentId,
+                      a,
+                      b,
+                      nextRound,
+                      BracketSide.LOSERS,
+                    ),
                   ),
                 });
               }
@@ -1060,7 +1074,10 @@ export class TournamentsService {
 
     const loserRating = await this.prisma.universityGameRating.upsert({
       where: {
-        universityId_gameTitle: { universityId: loserId, gameTitle: match.title },
+        universityId_gameTitle: {
+          universityId: loserId,
+          gameTitle: match.title,
+        },
       },
       create: { universityId: loserId, gameTitle: match.title },
       update: {},

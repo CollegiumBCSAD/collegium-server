@@ -10,7 +10,9 @@ import { Transform, Type } from 'class-transformer';
 import { GameTitle } from '@prisma/client';
 
 export class CreateTournamentDto {
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsNotEmpty()
   @IsString()
   name: string;
