@@ -46,6 +46,9 @@ const mockPrismaService = {
     findFirst: jest.fn(),
     deleteMany: jest.fn(),
   },
+  userGameHandle: {
+    upsert: jest.fn(),
+  },
 };
 
 const mockJwtService = {
@@ -579,6 +582,45 @@ describe('AuthService', () => {
       await expect(
         service.updateUserStatus('invalid', AccountStatus.ACTIVE),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('updateGameHandle()', () => {
+    it('upserts user game handle successfully', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      mockPrismaService.userGameHandle.upsert.mockResolvedValue({
+        id: 'ugh-1',
+        userId: 'user-1',
+        gameTitle: 'VALORANT',
+        handle: 'TenZ#NA1',
+      });
+
+      const result = await service.updateGameHandle('user-1', {
+        gameTitle: 'VALORANT' as any,
+        handle: 'TenZ#NA1',
+      });
+
+      expect(result.handle).toBe('TenZ#NA1');
+      expect(mockPrismaService.userGameHandle.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_gameTitle: {
+            userId: 'user-1',
+            gameTitle: 'VALORANT',
+          },
+        },
+        update: { handle: 'TenZ#NA1' },
+        create: { userId: 'user-1', gameTitle: 'VALORANT', handle: 'TenZ#NA1' },
+      });
+    });
+
+    it('throws UnauthorizedException if user not found', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      await expect(
+        service.updateGameHandle('invalid', {
+          gameTitle: 'VALORANT' as any,
+          handle: 'TenZ#NA1',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

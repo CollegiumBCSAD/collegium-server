@@ -135,6 +135,7 @@ model User {
   scrimChatMessages ScrimChatMessage[]
   organizedTournaments Tournament[] @relation("TournamentOrganizer")
   tournamentApplications TournamentApplication[]
+  gameHandles    UserGameHandle[]
   createdAt      DateTime       @default(now())
 }
 
@@ -349,3 +350,15 @@ model ValorantPlayerStat {
   damageDealt  Int?
   createdAt    DateTime   @default(now())
 }
+
+model UserGameHandle {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameTitle GameTitle
+  handle    String
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, gameTitle])
+}
+
