@@ -40,6 +40,12 @@ enum TournamentStatus {
   REJECTED
 }
 
+enum TournamentApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum DataSource {
   API
   PEER_VERIFIED
@@ -92,6 +98,7 @@ model University {
   lostMatches   Match[]                @relation("MatchLoser")
   gameRatings   UniversityGameRating[]
   playerStats   PlayerStat[]
+  tournamentApplications TournamentApplication[]
 }
 
 model UniversityGameRating {
@@ -127,6 +134,7 @@ model User {
   notifications  Notification[]
   scrimChatMessages ScrimChatMessage[]
   organizedTournaments Tournament[] @relation("TournamentOrganizer")
+  tournamentApplications TournamentApplication[]
   createdAt      DateTime       @default(now())
 }
 
@@ -143,6 +151,7 @@ model Team {
   members         TeamMember[]
   hostedScrims    Scrim[]      @relation("ScrimHost")
   acceptedScrims  Scrim[]      @relation("ScrimOpponent")
+  tournamentApplications TournamentApplication[]
 }
 
 model TeamMember {
@@ -256,6 +265,26 @@ model Tournament {
   createdAt       DateTime         @default(now())
   matches         Match[]
   universities    University[]
+  applications    TournamentApplication[]
+}
+
+model TournamentApplication {
+  id            String                      @id @default(uuid())
+  tournamentId  String
+  tournament    Tournament                  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  universityId  String
+  university    University                  @relation(fields: [universityId], references: [id])
+  userId        String
+  user          User                        @relation(fields: [userId], references: [id])
+  applicantName String
+  status        TournamentApplicationStatus @default(PENDING)
+  teamId        String?
+  team          Team?                       @relation(fields: [teamId], references: [id])
+  teamName      String?
+  appliedAt     DateTime                    @default(now())
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId])
 }
 
 model PlayerStat {

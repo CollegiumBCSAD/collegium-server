@@ -45,6 +45,14 @@ const mockPrismaService = {
     upsert: jest.fn(),
     update: jest.fn(),
   },
+  tournamentApplication: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
   $transaction: jest.fn(),
 };
 
@@ -862,32 +870,29 @@ describe('TournamentsService', () => {
   // getAllPendingApplications()
   describe('getAllPendingApplications()', () => {
     it('returns pending applications across tournaments, enriched with the real tournament name/game', async () => {
-      mockPrismaService.tournament.findUnique
-        .mockResolvedValueOnce({
-          id: 'tournament-1',
-          status: TournamentStatus.UPCOMING,
-          universities: [],
-        })
-        .mockResolvedValueOnce({
-          name: 'Community Cup',
-          gameTitle: GameTitle.VALORANT,
-        });
-      mockPrismaService.university.findUnique.mockResolvedValue({
-        id: 'uni-1',
-        name: 'University of Makati',
-      });
-
-      await service.applyForTournament('tournament-1', {
-        id: 'user-1',
-        displayName: 'Captain One',
-        universityId: 'uni-1',
-      });
+      mockPrismaService.tournamentApplication.findMany.mockResolvedValue([
+        {
+          id: 'app-1',
+          tournamentId: 'tournament-1',
+          universityId: 'uni-1',
+          userId: 'user-1',
+          applicantName: 'Captain One',
+          status: 'PENDING',
+          teamId: null,
+          teamName: null,
+          appliedAt: new Date('2026-01-01'),
+          university: { name: 'University of Makati' },
+          tournament: { name: 'Community Cup', gameTitle: GameTitle.VALORANT },
+        },
+      ]);
 
       const result = await service.getAllPendingApplications();
 
       expect(result).toEqual([
         expect.objectContaining({
+          id: 'app-1',
           tournamentId: 'tournament-1',
+          universityName: 'University of Makati',
           status: 'PENDING',
           tournamentName: 'Community Cup',
           gameTitle: GameTitle.VALORANT,
@@ -896,6 +901,7 @@ describe('TournamentsService', () => {
     });
 
     it('returns an empty list when nothing is pending', async () => {
+      mockPrismaService.tournamentApplication.findMany.mockResolvedValue([]);
       const result = await service.getAllPendingApplications();
       expect(result).toEqual([]);
     });
