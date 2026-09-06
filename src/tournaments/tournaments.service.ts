@@ -5,21 +5,37 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BracketSide,
+  DataSource,
   GameTitle,
   MatchMode,
   NotificationCategory,
   NotificationType,
   Role,
+  TournamentApplicationStatus,
   TournamentStatus,
 } from '@prisma/client';
-import { MatchLoggingService } from '../match-logging/match-logging.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GlickoService } from '../universities/glicko.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { ConfirmMatchDto } from './dto/confirm-match.dto';
+import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
+
+interface BracketMatchRow {
+  id: string;
+  round: number;
+  bracketSide: BracketSide | null;
+  winnerId: string | null;
+  loserId: string | null;
+  isVerified: boolean;
+}
+
+type LosersBracketStep =
+  | { type: 'seed'; consumesWbRound: number }
+  | { type: 'pure' }
+  | { type: 'merge'; consumesWbRound: number };
 
 export interface TournamentApplication {
   id: string;
@@ -28,23 +44,57 @@ export interface TournamentApplication {
   universityName: string;
   userId: string;
   applicantName: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: TournamentApplicationStatus;
   appliedAt: Date;
   teamId?: string;
   teamName?: string;
 }
 
+type ApplicationRow = {
+  id: string;
+  tournamentId: string;
+  universityId: string;
+  userId: string;
+  applicantName: string;
+  status: TournamentApplicationStatus;
+  teamId: string | null;
+  teamName: string | null;
+  appliedAt: Date;
+  university?: { name: string } | null;
+};
+
 @Injectable()
 export class TournamentsService {
-  private applications: Map<string, TournamentApplication[]> = new Map();
-
   constructor(
     private prisma: PrismaService,
-    private matchLoggingService: MatchLoggingService,
     private glickoService: GlickoService,
     private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
   ) {}
+
+  private mapApplication(app: ApplicationRow): TournamentApplication {
+    return {
+      id: app.id,
+      tournamentId: app.tournamentId,
+      universityId: app.universityId,
+      universityName: app.university?.name ?? 'Varsity Squad',
+      userId: app.userId,
+      applicantName: app.applicantName,
+      status: app.status,
+      appliedAt: app.appliedAt,
+      teamId: app.teamId ?? undefined,
+      teamName: app.teamName ?? undefined,
+    };
+  }
+
+  private async applicationsFor(tournamentId: string) {
+    const rows = await this.prisma.tournamentApplication.findMany({
+      where: { tournamentId },
+      include: { university: { select: { name: true } } },
+      orderBy: { appliedAt: 'asc' },
+    });
+    return rows.map((r) => this.mapApplication(r));
+  }
 
   // FIND ALL — List tournaments, optionally filtered by status.
   // With no filter, hide PENDING_APPROVAL/REJECTED from the general public list.
@@ -64,12 +114,13 @@ export class TournamentsService {
       include: {
         universities: true,
         matches: true,
+        applications: { include: { university: { select: { name: true } } } },
       },
     });
 
     return list.map((t) => ({
       ...t,
-      applications: this.applications.get(t.id) || [],
+      applications: t.applications.map((a) => this.mapApplication(a)),
     }));
   }
 
@@ -82,12 +133,13 @@ export class TournamentsService {
       include: {
         universities: true,
         matches: true,
+        applications: { include: { university: { select: { name: true } } } },
       },
     });
 
     return list.map((t) => ({
       ...t,
-      applications: this.applications.get(t.id) || [],
+      applications: t.applications.map((a) => this.mapApplication(a)),
     }));
   }
 
@@ -107,6 +159,7 @@ export class TournamentsService {
                         id: true,
                         displayName: true,
                         role: true,
+                        gameHandles: true,
                       },
                     },
                   },
@@ -135,6 +188,7 @@ export class TournamentsService {
             loser: true,
           },
         },
+        applications: { include: { university: { select: { name: true } } } },
       },
     });
 
@@ -144,7 +198,7 @@ export class TournamentsService {
 
     return {
       ...tournament,
-      applications: this.applications.get(tournament.id) || [],
+      applications: tournament.applications.map((a) => this.mapApplication(a)),
     };
   }
 
@@ -292,10 +346,13 @@ export class TournamentsService {
       );
     }
 
+    // Per-format eligibility (even count for Single/Double Elim, power-of-2
+    // for Double Elim) is enforced inside generateBracket itself — don't
+    // duplicate a stale even-only check here, it would silently skip bracket
+    // generation for Round Robin + Playoffs, which has no such requirement.
     if (
       tournament.matches.length === 0 &&
-      tournament.universities.length >= 2 &&
-      tournament.universities.length % 2 === 0
+      tournament.universities.length >= 2
     ) {
       return this.generateBracket(id);
     }
@@ -378,87 +435,60 @@ export class TournamentsService {
       );
     }
 
-    const university = user.universityId
-      ? await this.prisma.university.findUnique({
-          where: { id: user.universityId },
-        })
-      : null;
-
-    const uniName = university?.name || 'Varsity Squad';
-    const uniId = user.universityId || user.id;
-
-    const apps = this.applications.get(tournamentId) || [];
-    const existing = apps.find(
-      (a) =>
-        a.userId === user.id ||
-        (Boolean(body?.teamId) && a.teamId === body?.teamId),
-    );
+    if (!user.universityId) {
+      throw new BadRequestException(
+        'You must belong to a university to apply for a tournament',
+      );
+    }
 
     let resolvedTeamName = body?.teamName;
     if (body?.teamId && !resolvedTeamName) {
-      try {
-        const team = await this.prisma.team.findUnique({
-          where: { id: body.teamId },
-          select: { name: true },
-        });
-        if (team?.name) resolvedTeamName = team.name;
-      } catch {
-        // Ignore team query error and fallback to applicant name
-      }
+      const team = await this.prisma.team.findUnique({
+        where: { id: body.teamId },
+        select: { name: true },
+      });
+      if (team?.name) resolvedTeamName = team.name;
     }
 
-    if (existing) {
-      existing.status = 'PENDING';
-      if (body?.teamId) existing.teamId = body.teamId;
-      if (resolvedTeamName) existing.teamName = resolvedTeamName;
-      return existing;
-    }
+    const app = await this.prisma.tournamentApplication.upsert({
+      where: {
+        tournamentId_userId: { tournamentId, userId: user.id },
+      },
+      create: {
+        tournamentId,
+        universityId: user.universityId,
+        userId: user.id,
+        applicantName: user.displayName || 'Athletic Captain',
+        teamId: body?.teamId,
+        teamName: resolvedTeamName,
+        status: TournamentApplicationStatus.PENDING,
+      },
+      update: {
+        status: TournamentApplicationStatus.PENDING,
+        teamId: body?.teamId,
+        teamName: resolvedTeamName,
+      },
+      include: { university: { select: { name: true } } },
+    });
 
-    const newApp: TournamentApplication = {
-      id: `app-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      tournamentId,
-      universityId: uniId,
-      universityName: uniName,
-      userId: user.id,
-      applicantName: user.displayName || 'Athletic Captain',
-      teamId: body?.teamId,
-      teamName: resolvedTeamName,
-      status: 'PENDING',
-      appliedAt: new Date(),
-    };
-
-    apps.push(newApp);
-    this.applications.set(tournamentId, apps);
-    return newApp;
+    return this.mapApplication(app);
   }
 
   // WITHDRAW / UNDO APPLICATION — Athlete cancels their application
   async withdrawApplication(tournamentId: string, userId: string) {
-    const apps = this.applications.get(tournamentId) || [];
-    const target = apps.find((a) => a.userId === userId);
+    const target = await this.prisma.tournamentApplication.findUnique({
+      where: { tournamentId_userId: { tournamentId, userId } },
+    });
 
     if (target) {
-      // Remove application
-      this.applications.set(
-        tournamentId,
-        apps.filter((a) => a.userId !== userId),
-      );
+      await this.prisma.tournamentApplication.delete({
+        where: { id: target.id },
+      });
 
-      // Also disconnect if was connected
-      if (target.universityId) {
-        try {
-          await this.prisma.tournament.update({
-            where: { id: tournamentId },
-            data: {
-              universities: {
-                disconnect: { id: target.universityId },
-              },
-            },
-          });
-        } catch {
-          // ignore if not connected
-        }
-      }
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { universities: { disconnect: { id: target.universityId } } },
+      });
     }
 
     return { success: true, message: 'Application withdrawn successfully' };
@@ -466,101 +496,81 @@ export class TournamentsService {
 
   // GET APPLICATIONS — List applications for a tournament
   getApplications(tournamentId: string) {
-    return this.applications.get(tournamentId) || [];
+    return this.applicationsFor(tournamentId);
   }
 
   // GET ALL PENDING APPLICATIONS — Admin-wide view across every tournament,
   // enriched with the real tournament name/game (not the applicant's own copy)
   async getAllPendingApplications() {
-    const pending: Array<
-      TournamentApplication & {
-        tournamentName: string;
-        gameTitle: string | null;
-      }
-    > = [];
+    const rows = await this.prisma.tournamentApplication.findMany({
+      where: { status: TournamentApplicationStatus.PENDING },
+      include: {
+        university: { select: { name: true } },
+        tournament: { select: { name: true, gameTitle: true } },
+      },
+      orderBy: { appliedAt: 'asc' },
+    });
 
-    for (const [tournamentId, apps] of this.applications.entries()) {
-      const pendingForTournament = apps.filter((a) => a.status === 'PENDING');
-      if (pendingForTournament.length === 0) continue;
+    return rows.map((row) => ({
+      ...this.mapApplication(row),
+      tournamentName: row.tournament?.name ?? 'Unknown Tournament',
+      gameTitle: row.tournament?.gameTitle ?? null,
+    }));
+  }
 
-      const tournament = await this.prisma.tournament.findUnique({
-        where: { id: tournamentId },
-        select: { name: true, gameTitle: true },
-      });
+  private async findApplication(tournamentId: string, applicationId: string) {
+    const byId = await this.prisma.tournamentApplication.findFirst({
+      where: { id: applicationId, tournamentId },
+    });
+    if (byId) return byId;
 
-      for (const app of pendingForTournament) {
-        pending.push({
-          ...app,
-          tournamentName: tournament?.name ?? 'Unknown Tournament',
-          gameTitle: tournament?.gameTitle ?? null,
-        });
-      }
-    }
-
-    return pending;
+    return this.prisma.tournamentApplication.findFirst({
+      where: { tournamentId, universityId: applicationId },
+    });
   }
 
   // APPROVE APPLICATION — Organizer sanctions squad application
   async approveApplication(tournamentId: string, applicationId: string) {
-    const apps = this.applications.get(tournamentId) || [];
-    const target = apps.find(
-      (a) => a.id === applicationId || a.universityId === applicationId,
-    );
+    const target = await this.findApplication(tournamentId, applicationId);
 
     if (!target) {
       throw new NotFoundException('Application not found');
     }
 
-    target.status = 'APPROVED';
+    const updated = await this.prisma.tournamentApplication.update({
+      where: { id: target.id },
+      data: { status: TournamentApplicationStatus.APPROVED },
+      include: { university: { select: { name: true } } },
+    });
 
-    // Connect university to tournament roster
-    if (target.universityId) {
-      try {
-        await this.prisma.tournament.update({
-          where: { id: tournamentId },
-          data: {
-            universities: {
-              connect: { id: target.universityId },
-            },
-          },
-        });
-      } catch {
-        // ignore if already connected
-      }
-    }
+    await this.prisma.tournament.update({
+      where: { id: tournamentId },
+      data: { universities: { connect: { id: target.universityId } } },
+    });
 
-    return target;
+    return this.mapApplication(updated);
   }
 
   // REJECT APPLICATION — Organizer declines squad application
   async rejectApplication(tournamentId: string, applicationId: string) {
-    const apps = this.applications.get(tournamentId) || [];
-    const target = apps.find(
-      (a) => a.id === applicationId || a.universityId === applicationId,
-    );
+    const target = await this.findApplication(tournamentId, applicationId);
 
     if (!target) {
       throw new NotFoundException('Application not found');
     }
 
-    target.status = 'REJECTED';
+    const updated = await this.prisma.tournamentApplication.update({
+      where: { id: target.id },
+      data: { status: TournamentApplicationStatus.REJECTED },
+      include: { university: { select: { name: true } } },
+    });
 
-    if (target.universityId) {
-      try {
-        await this.prisma.tournament.update({
-          where: { id: tournamentId },
-          data: {
-            universities: {
-              disconnect: { id: target.universityId },
-            },
-          },
-        });
-      } catch {
-        // ignore
-      }
-    }
+    await this.prisma.tournament.update({
+      where: { id: tournamentId },
+      data: { universities: { disconnect: { id: target.universityId } } },
+    });
 
-    return target;
+    return this.mapApplication(updated);
   }
 
   // REGISTER — Register a university for a tournament directly (Legacy/Admin)
@@ -600,7 +610,8 @@ export class TournamentsService {
     return tournament;
   }
 
-  // GENERATE BRACKET — Pair registered universities into matches
+  // GENERATE BRACKET — Seed the tournament's matches according to its bracketFormat.
+  // "Single Elimination" is the default when bracketFormat is unset/unrecognized.
   async generateBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -625,65 +636,31 @@ export class TournamentsService {
       );
     }
 
-    if (universities.length % 2 !== 0) {
-      throw new BadRequestException(
-        'An even number of universities is required to generate a bracket',
+    if (tournament.bracketFormat === 'Round Robin + Playoffs') {
+      await this.generateRoundRobinStage(tournamentId, universities);
+    } else if (tournament.bracketFormat === 'Double Elimination') {
+      await this.generateDoubleEliminationRound1(tournamentId, universities);
+    } else {
+      this.assertEvenContestants(universities.length);
+      await this.createRound(
+        tournamentId,
+        this.shuffle(universities).map((u) => u.id),
+        1,
+        null,
       );
     }
 
-    // Shuffle universities randomly for fair seeding
-    const shuffled = [...universities].sort(() => Math.random() - 0.5);
-
-    // Pair them up into matches (university[0] vs university[1], etc.)
-    const matchPairs: { winnerId: string; loserId: string }[] = [];
-    for (let i = 0; i < shuffled.length; i += 2) {
-      matchPairs.push({
-        winnerId: shuffled[i].id,
-        loserId: shuffled[i + 1].id,
-      });
-    }
-
-    // Create placeholder match records in a transaction
-    // winner/loser are placeholders until the match is confirmed
-    await this.prisma.$transaction(async (tx) => {
-      for (const pair of matchPairs) {
-        await tx.match.create({
-          data: {
-            title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
-            matchMode: MatchMode.TOURNAMENT,
-            tournamentId: tournament.id,
-            gameDuration: 0,
-            gameMode: 'CLASSIC',
-            platformId: 'PH',
-            winnerId: pair.winnerId,
-            loserId: pair.loserId,
-            isVerified: false,
-          },
-        });
-      }
-
-      // Move tournament to ONGOING now that bracket is set
-      await tx.tournament.update({
-        where: { id: tournamentId },
-        data: { status: TournamentStatus.ONGOING },
-      });
-    });
-
-    // Return the full bracket for the response
-    return this.prisma.tournament.findUnique({
+    // Move tournament to ONGOING now that the bracket is seeded
+    await this.prisma.tournament.update({
       where: { id: tournamentId },
-      include: {
-        matches: {
-          include: {
-            playerStats: true,
-          },
-        },
-        universities: true,
-      },
+      data: { status: TournamentStatus.ONGOING },
     });
+
+    return this.getBracket(tournamentId);
   }
 
-  // GET BRACKET — Fetch tournament with all matches
+  // GET BRACKET — Fetch tournament with all matches, ordered so the frontend
+  // can group them into rounds/bracket sides without re-deriving order itself.
   async getBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
@@ -692,6 +669,7 @@ export class TournamentsService {
           include: {
             playerStats: true,
           },
+          orderBy: [{ round: 'asc' }, { playedAt: 'asc' }],
         },
         universities: true,
       },
@@ -704,129 +682,462 @@ export class TournamentsService {
     return tournament;
   }
 
-  // CONFIRM MATCH — Coach submits the Riot matchId, triggers LoL pipeline
-  async confirmMatch(
+  // --- Bracket generation & advancement helpers -----------------------------
+
+  private assertEvenContestants(count: number) {
+    if (count % 2 !== 0) {
+      throw new BadRequestException(
+        'An even number of universities is required to generate a bracket',
+      );
+    }
+  }
+
+  private isPowerOfTwo(n: number) {
+    return n >= 4 && (n & (n - 1)) === 0;
+  }
+
+  private shuffle<T>(list: T[]): T[] {
+    return [...list].sort(() => Math.random() - 0.5);
+  }
+
+  private pairUp<T>(list: T[]): [T, T][] {
+    const pairs: [T, T][] = [];
+    for (let i = 0; i < list.length; i += 2) {
+      pairs.push([list[i], list[i + 1]]);
+    }
+    return pairs;
+  }
+
+  private matchRow(
     tournamentId: string,
-    matchId: string,
-    dto: ConfirmMatchDto,
+    winnerId: string,
+    loserId: string,
+    round: number,
+    bracketSide: BracketSide | null,
   ) {
-    const match = await this.prisma.match.findFirst({
-      where: { id: matchId, tournamentId },
-    });
+    return {
+      title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
+      matchMode: MatchMode.TOURNAMENT,
+      tournamentId,
+      gameDuration: 0,
+      gameMode: 'CLASSIC',
+      platformId: 'PH',
+      winnerId,
+      loserId,
+      isVerified: false,
+      round,
+      bracketSide: bracketSide ?? undefined,
+    };
+  }
 
-    if (!match) {
-      throw new NotFoundException('Match not found in this tournament');
-    }
-
-    if (match.isVerified) {
-      throw new BadRequestException('This match has already been confirmed');
-    }
-
-    // Trigger the existing match-logging pipeline, passing the bracket's matchId
-    await this.matchLoggingService.logMatch(
-      match.title,
-      dto.riotMatchId,
-      MatchMode.TOURNAMENT,
-      true, // CHANGED TO TRUE FOR MVP TESTING
-      matchId, // Pass the existing database Match ID so it updates instead of creating!
-    );
-
-    // Return the updated match with its new player stats
-    return this.prisma.match.findUnique({
-      where: { id: matchId },
-      include: {
-        playerStats: true,
-      },
+  // Pairs up a flat contestant list (winnerId/loserId are placeholder pairing
+  // slots, not a real result, exactly like the original generateBracket) into
+  // matches for one round/bracket side.
+  private async createRound(
+    tournamentId: string,
+    contestantIds: string[],
+    round: number,
+    bracketSide: BracketSide | null,
+  ) {
+    const pairs = this.pairUp(contestantIds);
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) =>
+        this.matchRow(tournamentId, a, b, round, bracketSide),
+      ),
     });
   }
 
-  // CLOSE MATCH — Admin marks match as verified; ready for ranking
-  async closeMatch(tournamentId: string, matchId: string) {
+  // ROUND ROBIN — every university plays every other university once, all at round 0.
+  private async generateRoundRobinStage(
+    tournamentId: string,
+    universities: { id: string }[],
+  ) {
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < universities.length; i++) {
+      for (let j = i + 1; j < universities.length; j++) {
+        pairs.push([universities[i].id, universities[j].id]);
+      }
+    }
+
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) => this.matchRow(tournamentId, a, b, 0, null)),
+    });
+  }
+
+  // Once every round-0 match is verified, seed a single-elim playoff bracket
+  // from the group standings (most wins first), seeded best-vs-worst.
+  private async seedPlayoffs(
+    tournamentId: string,
+    groupMatches: BracketMatchRow[],
+  ) {
+    const wins = new Map<string, number>();
+    for (const m of groupMatches) {
+      if (m.winnerId) wins.set(m.winnerId, (wins.get(m.winnerId) ?? 0) + 1);
+      if (m.loserId && !wins.has(m.loserId)) wins.set(m.loserId, 0);
+    }
+
+    const ranked = [...wins.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => id);
+
+    // Playoffs need a power-of-2 field; drop the lowest seeds that don't fit.
+    let bracketSize = 2;
+    while (bracketSize * 2 <= ranked.length) bracketSize *= 2;
+
+    const seeded = ranked.slice(0, bracketSize);
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < bracketSize / 2; i++) {
+      pairs.push([seeded[i], seeded[bracketSize - 1 - i]]);
+    }
+
+    await this.prisma.match.createMany({
+      data: pairs.map(([a, b]) => this.matchRow(tournamentId, a, b, 1, null)),
+    });
+  }
+
+  // DOUBLE ELIMINATION — winners-bracket round 1. Requires a power-of-2 field
+  // (>=4) so the losers-bracket schedule below divides evenly at every step.
+  private async generateDoubleEliminationRound1(
+    tournamentId: string,
+    universities: { id: string }[],
+  ) {
+    if (!this.isPowerOfTwo(universities.length)) {
+      throw new BadRequestException(
+        'Double Elimination requires a number of registered universities that is a power of 2, 4 or more (4, 8, 16...)',
+      );
+    }
+
+    await this.createRound(
+      tournamentId,
+      this.shuffle(universities).map((u) => u.id),
+      1,
+      BracketSide.WINNERS,
+    );
+  }
+
+  // Standard double-elimination losers-bracket schedule for k winners-bracket
+  // rounds: LB round 1 seeds directly from WB round 1's losers, then
+  // alternates a "pure" survivor-vs-survivor round with a "merge" round that
+  // pulls in each subsequent WB round's losers, ending with the LB final that
+  // feeds the grand final.
+  // ponytail: no bracket-reset if the losers-bracket champion beats the
+  // winners-bracket champion in the grand final (real double-elim would force
+  // a second match, since the WB champion still has zero losses) — add a
+  // second grand-final match on that outcome if this needs to be
+  // tournament-official rather than casual.
+  private losersBracketSchedule(wbRounds: number): LosersBracketStep[] {
+    const schedule: LosersBracketStep[] = [
+      { type: 'seed', consumesWbRound: 1 },
+    ];
+    for (let r = 2; r <= wbRounds; r++) {
+      if (r > 2) schedule.push({ type: 'pure' });
+      schedule.push({ type: 'merge', consumesWbRound: r });
+    }
+    return schedule;
+  }
+
+  // Called after every match close — advances whichever bracket(s) have just
+  // had their current round/stage fully verified. Idempotent: every branch
+  // only creates a round once its inputs are ready and it doesn't already exist.
+  private async tryAdvanceBracket(tournamentId: string) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { status: true, bracketFormat: true },
+    });
+
+    if (!tournament || tournament.status !== TournamentStatus.ONGOING) return;
+
+    const matches = await this.prisma.match.findMany({
+      where: { tournamentId },
+      select: {
+        id: true,
+        round: true,
+        bracketSide: true,
+        winnerId: true,
+        loserId: true,
+        isVerified: true,
+      },
+    });
+
+    if (matches.length === 0) return;
+
+    if (tournament.bracketFormat === 'Double Elimination') {
+      await this.advanceDoubleElimination(tournamentId, matches);
+    } else {
+      await this.advanceEliminationLike(tournamentId, matches);
+    }
+  }
+
+  // Drives both plain Single Elimination and the playoff portion of Round
+  // Robin + Playoffs (round 0 is the round-robin group stage; once it's fully
+  // verified this seeds the single-elim playoff bracket from standings).
+  private async advanceEliminationLike(
+    tournamentId: string,
+    matches: BracketMatchRow[],
+  ) {
+    const maxRound = Math.max(...matches.map((m) => m.round));
+    const currentRound = matches.filter((m) => m.round === maxRound);
+
+    if (!currentRound.every((m) => m.isVerified)) return;
+
+    if (maxRound === 0) {
+      await this.seedPlayoffs(tournamentId, currentRound);
+      return;
+    }
+
+    const winners = currentRound
+      .map((m) => m.winnerId)
+      .filter((id): id is string => !!id);
+
+    if (winners.length <= 1) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.COMPLETED },
+      });
+      return;
+    }
+
+    await this.createRound(tournamentId, winners, maxRound + 1, null);
+  }
+
+  private async advanceDoubleElimination(
+    tournamentId: string,
+    matches: BracketMatchRow[],
+  ) {
+    const wb = matches.filter((m) => m.bracketSide === BracketSide.WINNERS);
+    const lb = matches.filter((m) => m.bracketSide === BracketSide.LOSERS);
+    const gf = matches.filter((m) => m.bracketSide === BracketSide.GRAND_FINAL);
+    const wbByRound = (r: number) => wb.filter((m) => m.round === r);
+
+    // 1. Advance the winners bracket; capture its champion once it's down to one.
+    const wbRoundsCount = Math.max(...wb.map((m) => m.round));
+    const currentWb = wbByRound(wbRoundsCount);
+    let wbChampion: string | null = null;
+
+    if (currentWb.every((m) => m.isVerified)) {
+      const winners = currentWb
+        .map((m) => m.winnerId)
+        .filter((id): id is string => !!id);
+      if (winners.length > 1) {
+        await this.createRound(
+          tournamentId,
+          winners,
+          wbRoundsCount + 1,
+          BracketSide.WINNERS,
+        );
+      } else {
+        wbChampion = winners[0] ?? null;
+      }
+    }
+
+    // 2. Advance the losers bracket per the precomputed schedule.
+    const schedule = this.losersBracketSchedule(wbRoundsCount);
+    const lbRoundsDone = Math.max(0, ...lb.map((m) => m.round));
+    let lbChampion: string | null = null;
+
+    if (lbRoundsDone >= schedule.length) {
+      const finalLb = lb.filter((m) => m.round === lbRoundsDone);
+      if (finalLb.length === 1 && finalLb.every((m) => m.isVerified)) {
+        lbChampion = finalLb[0].winnerId;
+      }
+    } else {
+      const step = schedule[lbRoundsDone];
+      const nextRound = lbRoundsDone + 1;
+
+      if (step.type === 'seed') {
+        const wbSource = wbByRound(step.consumesWbRound);
+        if (wbSource.length > 0 && wbSource.every((m) => m.isVerified)) {
+          const losers = wbSource
+            .map((m) => m.loserId)
+            .filter((id): id is string => !!id);
+          if (losers.length > 1) {
+            await this.createRound(
+              tournamentId,
+              losers,
+              nextRound,
+              BracketSide.LOSERS,
+            );
+          }
+        }
+      } else {
+        const prevLb = lb.filter((m) => m.round === lbRoundsDone);
+        if (prevLb.length > 0 && prevLb.every((m) => m.isVerified)) {
+          const survivors = prevLb
+            .map((m) => m.winnerId)
+            .filter((id): id is string => !!id);
+
+          if (step.type === 'pure') {
+            if (survivors.length > 1) {
+              await this.createRound(
+                tournamentId,
+                survivors,
+                nextRound,
+                BracketSide.LOSERS,
+              );
+            }
+          } else {
+            const wbSource = wbByRound(step.consumesWbRound);
+            if (wbSource.length > 0 && wbSource.every((m) => m.isVerified)) {
+              const newLosers = wbSource
+                .map((m) => m.loserId)
+                .filter((id): id is string => !!id);
+              if (
+                survivors.length === newLosers.length &&
+                survivors.length > 0
+              ) {
+                const pairs = survivors.map(
+                  (s, i) => [s, newLosers[i]] as [string, string],
+                );
+                await this.prisma.match.createMany({
+                  data: pairs.map(([a, b]) =>
+                    this.matchRow(
+                      tournamentId,
+                      a,
+                      b,
+                      nextRound,
+                      BracketSide.LOSERS,
+                    ),
+                  ),
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Once both champions exist, create the grand final; once it's
+    // verified, the tournament is over.
+    if (wbChampion && lbChampion && gf.length === 0) {
+      await this.createRound(
+        tournamentId,
+        [wbChampion, lbChampion],
+        wbRoundsCount + 1,
+        BracketSide.GRAND_FINAL,
+      );
+    } else if (gf.length === 1 && gf[0].isVerified) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.COMPLETED },
+      });
+    }
+  }
+
+  // CLOSE MATCH — Admin/Organizer manually reports the winner and per-player
+  // stats for a match (no Riot API involved), verifying it and running ratings.
+  async closeMatch(tournamentId: string, matchId: string, dto: CloseMatchDto) {
     const match = await this.prisma.match.findFirst({
       where: { id: matchId, tournamentId },
     });
 
     if (!match) {
       throw new NotFoundException('Match not found in this tournament');
-    }
-
-    if (!match.riotMatchId) {
-      throw new BadRequestException(
-        'Match cannot be closed before it is confirmed with a Riot match ID',
-      );
     }
 
     if (match.isVerified) {
       throw new BadRequestException('This match is already closed');
     }
 
-    if (match.winnerId && match.loserId) {
-      const winnerRating = await this.prisma.universityGameRating.upsert({
-        where: {
-          universityId_gameTitle: {
-            universityId: match.winnerId,
-            gameTitle: match.title,
-          },
-        },
-        create: {
-          universityId: match.winnerId,
-          gameTitle: match.title,
-        },
-        update: {},
-      });
+    // The two universities paired into this match at bracket-generation time
+    // are the only valid winner/player sides — winnerId/loserId here are
+    // still just the pairing slots until this call assigns the real result.
+    const contestants = [match.winnerId, match.loserId].filter(
+      (id): id is string => !!id,
+    );
 
-      const loserRating = await this.prisma.universityGameRating.upsert({
-        where: {
-          universityId_gameTitle: {
-            universityId: match.loserId,
-            gameTitle: match.title,
-          },
-        },
-        create: {
-          universityId: match.loserId,
-          gameTitle: match.title,
-        },
-        update: {},
-      });
-
-      const result = this.glickoService.calculateMatch(
-        {
-          rating: winnerRating.glicko2_rating,
-          rd: winnerRating.glicko2_rd,
-          sigma: winnerRating.glicko2_sigma,
-        },
-        {
-          rating: loserRating.glicko2_rating,
-          rd: loserRating.glicko2_rd,
-          sigma: loserRating.glicko2_sigma,
-        },
+    if (!contestants.includes(dto.winnerId)) {
+      throw new BadRequestException(
+        'winnerId must be one of the two universities in this match',
       );
-
-      await this.prisma.universityGameRating.update({
-        where: { id: winnerRating.id },
-        data: {
-          glicko2_rating: result.winner.rating,
-          glicko2_rd: result.winner.rd,
-          glicko2_sigma: result.winner.sigma,
-          wins: { increment: 1 },
-        },
-      });
-
-      await this.prisma.universityGameRating.update({
-        where: { id: loserRating.id },
-        data: {
-          glicko2_rating: result.loser.rating,
-          glicko2_rd: result.loser.rd,
-          glicko2_sigma: result.loser.sigma,
-          losses: { increment: 1 },
-        },
-      });
     }
 
-    return this.prisma.match.update({
-      where: { id: matchId },
-      data: { isVerified: true },
+    const loserId = contestants.find((id) => id !== dto.winnerId)!;
+
+    for (const player of dto.players) {
+      if (!contestants.includes(player.universityId)) {
+        throw new BadRequestException(
+          `Player university ${player.universityId} is not one of the two universities in this match`,
+        );
+      }
+    }
+
+    const winnerRating = await this.prisma.universityGameRating.upsert({
+      where: {
+        universityId_gameTitle: {
+          universityId: dto.winnerId,
+          gameTitle: match.title,
+        },
+      },
+      create: { universityId: dto.winnerId, gameTitle: match.title },
+      update: {},
     });
+
+    const loserRating = await this.prisma.universityGameRating.upsert({
+      where: {
+        universityId_gameTitle: {
+          universityId: loserId,
+          gameTitle: match.title,
+        },
+      },
+      create: { universityId: loserId, gameTitle: match.title },
+      update: {},
+    });
+
+    const result = this.glickoService.calculateMatch(
+      {
+        rating: winnerRating.glicko2_rating,
+        rd: winnerRating.glicko2_rd,
+        sigma: winnerRating.glicko2_sigma,
+      },
+      {
+        rating: loserRating.glicko2_rating,
+        rd: loserRating.glicko2_rd,
+        sigma: loserRating.glicko2_sigma,
+      },
+    );
+
+    await this.prisma.universityGameRating.update({
+      where: { id: winnerRating.id },
+      data: {
+        glicko2_rating: result.winner.rating,
+        glicko2_rd: result.winner.rd,
+        glicko2_sigma: result.winner.sigma,
+        wins: { increment: 1 },
+      },
+    });
+
+    await this.prisma.universityGameRating.update({
+      where: { id: loserRating.id },
+      data: {
+        glicko2_rating: result.loser.rating,
+        glicko2_rd: result.loser.rd,
+        glicko2_sigma: result.loser.sigma,
+        losses: { increment: 1 },
+      },
+    });
+
+    await this.prisma.playerStat.createMany({
+      data: dto.players.map((player) => ({
+        matchId,
+        universityId: player.universityId,
+        userId: player.userId,
+        summonerName: player.name,
+        kills: player.kills,
+        deaths: player.deaths,
+        assists: player.assists,
+        win: player.universityId === dto.winnerId,
+        dataSource: DataSource.PEER_VERIFIED,
+      })),
+    });
+
+    const closed = await this.prisma.match.update({
+      where: { id: matchId },
+      data: { winnerId: dto.winnerId, loserId, isVerified: true },
+    });
+
+    await this.tryAdvanceBracket(tournamentId);
+
+    return closed;
   }
 
   // DELETE — Delete or remove a tournament

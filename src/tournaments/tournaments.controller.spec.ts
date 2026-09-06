@@ -16,7 +16,6 @@ describe('TournamentsController', () => {
             registerUniversity: jest.fn(),
             generateBracket: jest.fn(),
             getBracket: jest.fn(),
-            confirmMatch: jest.fn(),
             closeMatch: jest.fn(),
           },
         },

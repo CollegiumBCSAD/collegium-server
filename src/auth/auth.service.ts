@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateGameHandleDto } from './dto/update-game-handle.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { AccountStatus, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -357,6 +358,29 @@ export class AuthService {
             domain: true,
           },
         },
+        gameHandles: {
+          select: {
+            id: true,
+            gameTitle: true,
+            handle: true,
+            updatedAt: true,
+          },
+        },
+        teamMemberships: {
+          select: {
+            id: true,
+            gameHandle: true,
+            preferredRole: true,
+            status: true,
+            team: {
+              select: {
+                id: true,
+                name: true,
+                gameTitle: true,
+              },
+            },
+          },
+        },
         createdAt: true,
       },
     });
@@ -366,6 +390,51 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async updateGameHandle(userId: string, dto: UpdateGameHandleDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.role === Role.ORGANIZER || user.role === Role.ADMIN) {
+      throw new ForbiddenException(
+        'Organizers and Administrators cannot manage athlete game handles.',
+      );
+    }
+
+    const gameHandle = await this.prisma.userGameHandle.upsert({
+      where: {
+        userId_gameTitle: {
+          userId,
+          gameTitle: dto.gameTitle,
+        },
+      },
+      update: {
+        handle: dto.handle.trim(),
+      },
+      create: {
+        userId,
+        gameTitle: dto.gameTitle,
+        handle: dto.handle.trim(),
+      },
+    });
+
+    // Also sync the updated handle across existing squad rosters for this game title
+    await this.prisma.teamMember.updateMany({
+      where: {
+        userId,
+        team: {
+          gameTitle: dto.gameTitle,
+        },
+      },
+      data: {
+        gameHandle: dto.handle.trim(),
+      },
+    });
+
+    return gameHandle;
   }
 
   async listUsers() {

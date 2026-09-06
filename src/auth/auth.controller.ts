@@ -24,6 +24,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ResendVerificationDto } from './dto/resend-verification.dto';
+import { UpdateGameHandleDto } from './dto/update-game-handle.dto';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -205,6 +206,27 @@ export class AuthController {
       throw new UnauthorizedException('User not authenticated');
     }
     return this.authService.getMe(userId);
+  }
+
+  @Patch('me/game-handles')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Update or set in-game handle (IGN) for a game title',
+  })
+  async updateGameHandle(
+    @Req() req: express.Request,
+    @Body() dto: UpdateGameHandleDto,
+  ) {
+    const reqWithUser = req as unknown as {
+      user?: { id?: string; sub?: string };
+    };
+    const user = reqWithUser.user;
+    const userId = user?.id || user?.sub;
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.authService.updateGameHandle(userId, dto);
   }
 
   @Get('users')

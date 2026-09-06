@@ -21,7 +21,7 @@ import {
   ApiConsumes,
 } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { ConfirmMatchDto } from './dto/confirm-match.dto';
+import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { TournamentsService } from './tournaments.service';
@@ -244,29 +244,23 @@ export class TournamentsController {
     return this.tournamentsService.findOne(tournamentId);
   }
 
-  // POST /tournaments/:id/matches/:mid/confirm — Athlete submits the Riot match ID
-  @Post(':id/matches/:mid/confirm')
-  @Roles(Role.ATHLETE)
-  @ApiOperation({
-    summary: 'Confirm a match result by submitting the Riot match ID',
-  })
-  confirmMatch(
-    @Param('id') tournamentId: string,
-    @Param('mid') matchId: string,
-    @Body() confirmMatchDto: ConfirmMatchDto,
-  ) {
-    return this.tournamentsService.confirmMatch(
-      tournamentId,
-      matchId,
-      confirmMatchDto,
-    );
-  }
-
-  // POST /tournaments/:id/matches/:mid/close — Admin or Organizer closes and verifies the match
+  // POST /tournaments/:id/matches/:mid/close — Admin or Organizer manually reports
+  // the winner and per-player stats, verifying the match (no Riot API involved)
   @Post(':id/matches/:mid/close')
   @Roles(Role.ADMIN, Role.ORGANIZER)
-  @ApiOperation({ summary: 'Close and verify a match (Admin or Organizer)' })
-  closeMatch(@Param('id') tournamentId: string, @Param('mid') matchId: string) {
-    return this.tournamentsService.closeMatch(tournamentId, matchId);
+  @ApiOperation({
+    summary:
+      'Report the winner and stats for a match, closing and verifying it',
+  })
+  closeMatch(
+    @Param('id') tournamentId: string,
+    @Param('mid') matchId: string,
+    @Body() closeMatchDto: CloseMatchDto,
+  ) {
+    return this.tournamentsService.closeMatch(
+      tournamentId,
+      matchId,
+      closeMatchDto,
+    );
   }
 }

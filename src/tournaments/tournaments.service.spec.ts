@@ -1,7 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MatchMode, TournamentStatus, GameTitle, Role } from '@prisma/client';
-import { MatchLoggingService } from '../match-logging/match-logging.service';
+import { BracketSide, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -27,16 +26,29 @@ const mockPrismaService = {
   },
   match: {
     create: jest.fn(),
+    createMany: jest.fn(),
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
     deleteMany: jest.fn(),
   },
+  playerStat: {
+    createMany: jest.fn(),
+  },
+  universityGameRating: {
+    upsert: jest.fn(),
+    update: jest.fn(),
+  },
+  tournamentApplication: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    upsert: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
   $transaction: jest.fn(),
-};
-
-const mockMatchLoggingService = {
-  logMatch: jest.fn(),
 };
 
 const mockNotificationsService = {
@@ -57,7 +69,6 @@ describe('TournamentsService', () => {
         TournamentsService,
         GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
-        { provide: MatchLoggingService, useValue: mockMatchLoggingService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
@@ -67,6 +78,19 @@ describe('TournamentsService', () => {
 
     // Reset all mocks before each test so they don't bleed into each other
     jest.clearAllMocks();
+
+    // Sane default so closeMatch()'s Glicko rating lookups resolve to a
+    // valid rating object unless a specific test overrides them.
+    mockPrismaService.universityGameRating.upsert.mockImplementation(
+      ({ create }: { create: { universityId: string } }) => ({
+        id: `rating-${create.universityId}`,
+        glicko2_rating: 1500,
+        glicko2_rd: 350,
+        glicko2_sigma: 0.06,
+      }),
+    );
+    mockPrismaService.universityGameRating.update.mockResolvedValue({});
+    mockPrismaService.playerStat.createMany.mockResolvedValue({ count: 0 });
   });
 
   it('should be defined', () => {
@@ -378,6 +402,48 @@ describe('TournamentsService', () => {
     });
   });
 
+  // startTournament()
+  describe('startTournament()', () => {
+    const tournamentId = 'tournament-uuid';
+    const user = { id: 'organizer-uuid', role: Role.ADMIN };
+
+    it('generates the bracket for Round Robin + Playoffs with an odd university count', async () => {
+      // Regression check: startTournament used to gate bracket generation on
+      // an even university count regardless of format, which silently skipped
+      // generating a Round Robin + Playoffs bracket (it has no such
+      // requirement) and left the tournament ONGOING with zero matches.
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        organizerId: user.id,
+        status: TournamentStatus.UPCOMING,
+        bracketFormat: 'Round Robin + Playoffs',
+        matches: [],
+        universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+        bracketFormat: 'Round Robin + Playoffs',
+        universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        matches: [],
+        universities: [],
+      });
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 3 });
+      mockPrismaService.tournament.update.mockResolvedValue({});
+
+      await service.startTournament(tournamentId, user);
+
+      expect(mockPrismaService.match.createMany).toHaveBeenCalledTimes(1);
+      const firstCall = mockPrismaService.match.createMany.mock
+        .calls[0] as unknown as [{ data: Array<{ round: number }> }];
+      const { data } = firstCall[0];
+      expect(data).toHaveLength(3); // C(3,2) round-robin pairings, no evenness required
+    });
+  });
+
   // generateBracket()
   describe('generateBracket()', () => {
     const tournamentId = 'tournament-uuid';
@@ -427,6 +493,218 @@ describe('TournamentsService', () => {
     });
   });
 
+  // generateBracket() — format dispatch for the two new bracket formats
+  describe('generateBracket() format dispatch', () => {
+    const tournamentId = 'tournament-uuid';
+
+    beforeEach(() => {
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 0 });
+      mockPrismaService.tournament.update.mockResolvedValue({});
+    });
+
+    it('creates all-pairs round-robin matches at round 0 (order-agnostic to team count parity)', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          bracketFormat: 'Round Robin + Playoffs',
+          universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+        })
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          matches: [],
+          universities: [],
+        });
+
+      await service.generateBracket(tournamentId);
+
+      const firstCall = mockPrismaService.match.createMany.mock.calls[0] as [
+        { data: Array<{ round: number }> },
+      ];
+      const { data } = firstCall[0];
+      expect(data).toHaveLength(3); // C(3,2) pairings for 3 universities
+      expect(data.every((m: { round: number }) => m.round === 0)).toBe(true);
+    });
+
+    it('rejects Double Elimination when the university count is not a power of 2', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
+        id: tournamentId,
+        status: TournamentStatus.UPCOMING,
+        bracketFormat: 'Double Elimination',
+        universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      });
+
+      await expect(service.generateBracket(tournamentId)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('seeds Double Elimination winners-bracket round 1', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          bracketFormat: 'Double Elimination',
+          universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+        })
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          matches: [],
+          universities: [],
+        });
+
+      await service.generateBracket(tournamentId);
+
+      const firstCall = mockPrismaService.match.createMany.mock.calls[0] as [
+        { data: Array<{ round: number; bracketSide: BracketSide }> },
+      ];
+      const { data } = firstCall[0];
+      expect(data).toHaveLength(2);
+      expect(
+        data.every(
+          (m: { round: number; bracketSide: BracketSide }) =>
+            m.round === 1 && m.bracketSide === BracketSide.WINNERS,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  // losersBracketSchedule() — the double-elim losers-bracket round plan
+  describe('losersBracketSchedule()', () => {
+    it('produces the correct seed/merge/pure schedule for 4, 8, and 16 team fields', () => {
+      const svc = service as unknown as {
+        losersBracketSchedule: (wbRounds: number) => unknown[];
+      };
+
+      expect(svc.losersBracketSchedule(2)).toEqual([
+        { type: 'seed', consumesWbRound: 1 },
+        { type: 'merge', consumesWbRound: 2 },
+      ]);
+
+      expect(svc.losersBracketSchedule(3)).toEqual([
+        { type: 'seed', consumesWbRound: 1 },
+        { type: 'merge', consumesWbRound: 2 },
+        { type: 'pure' },
+        { type: 'merge', consumesWbRound: 3 },
+      ]);
+
+      expect(svc.losersBracketSchedule(4)).toEqual([
+        { type: 'seed', consumesWbRound: 1 },
+        { type: 'merge', consumesWbRound: 2 },
+        { type: 'pure' },
+        { type: 'merge', consumesWbRound: 3 },
+        { type: 'pure' },
+        { type: 'merge', consumesWbRound: 4 },
+      ]);
+    });
+  });
+
+  // closeMatch() bracket advancement
+  describe('closeMatch() bracket advancement', () => {
+    const tournamentId = 'tournament-uuid';
+    const matchId = 'match-2';
+
+    const closeDto = {
+      winnerId: 'uni-a',
+      players: [
+        {
+          universityId: 'uni-a',
+          name: 'Player 1',
+          kills: 5,
+          deaths: 1,
+          assists: 3,
+        },
+      ],
+    };
+
+    it('advances to the next single-elimination round once the current round is fully verified', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...mockMatch,
+        isVerified: true,
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        status: TournamentStatus.ONGOING,
+        bracketFormat: null,
+      });
+      mockPrismaService.match.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          round: 1,
+          bracketSide: null,
+          winnerId: 'uni-a',
+          loserId: 'uni-b',
+          isVerified: true,
+        },
+        {
+          id: 'm2',
+          round: 1,
+          bracketSide: null,
+          winnerId: 'uni-c',
+          loserId: 'uni-d',
+          isVerified: true,
+        },
+      ]);
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 1 });
+
+      await service.closeMatch(tournamentId, matchId, closeDto);
+
+      const expectedData = expect.arrayContaining([
+        expect.objectContaining({
+          round: 2,
+          winnerId: 'uni-a',
+          loserId: 'uni-c',
+        }),
+      ]) as unknown;
+      expect(mockPrismaService.match.createMany).toHaveBeenCalledWith({
+        data: expectedData,
+      });
+    });
+
+    it('marks the tournament COMPLETED once the final round produces a single winner', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...mockMatch,
+        isVerified: true,
+      });
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        status: TournamentStatus.ONGOING,
+        bracketFormat: null,
+      });
+      mockPrismaService.match.findMany.mockResolvedValue([
+        {
+          id: 'gf',
+          round: 3,
+          bracketSide: null,
+          winnerId: 'uni-a',
+          loserId: 'uni-b',
+          isVerified: true,
+        },
+      ]);
+
+      await service.closeMatch(tournamentId, matchId, closeDto);
+
+      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
+        where: { id: tournamentId },
+        data: { status: TournamentStatus.COMPLETED },
+      });
+    });
+  });
+
   // getBracket()
   describe('getBracket()', () => {
     const tournamentId = 'tournament-uuid';
@@ -453,98 +731,102 @@ describe('TournamentsService', () => {
     });
   });
 
-  // confirmMatch()
-  describe('confirmMatch()', () => {
-    const tournamentId = 'tournament-uuid';
-    const matchId = 'match-uuid';
-    const dto = { riotMatchId: 'SEA_12345' };
-
-    it('should confirm a match and trigger the Riot pipeline', async () => {
-      const mockMatch = {
-        id: matchId,
-        tournamentId,
-        isVerified: false,
-        riotMatchId: null,
-        title: GameTitle.LOL,
-      };
-      const mockUpdated = { ...mockMatch, riotMatchId: dto.riotMatchId };
-
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-      mockMatchLoggingService.logMatch.mockResolvedValue(undefined);
-      mockPrismaService.match.update.mockResolvedValue(mockUpdated);
-      mockPrismaService.match.findUnique.mockResolvedValue(mockUpdated);
-
-      const result = await service.confirmMatch(tournamentId, matchId, dto);
-
-      expect(mockMatchLoggingService.logMatch).toHaveBeenCalledWith(
-        GameTitle.LOL,
-        dto.riotMatchId,
-        MatchMode.TOURNAMENT,
-        true,
-        matchId,
-      );
-      expect(result!.riotMatchId).toEqual(dto.riotMatchId);
-    });
-
-    it('should throw NotFoundException if match is not found', async () => {
-      mockPrismaService.match.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.confirmMatch(tournamentId, matchId, dto),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException if match is already confirmed', async () => {
-      const mockMatch = { id: matchId, tournamentId, isVerified: true };
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-
-      await expect(
-        service.confirmMatch(tournamentId, matchId, dto),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
   // closeMatch()
   describe('closeMatch()', () => {
     const tournamentId = 'tournament-uuid';
     const matchId = 'match-uuid';
+    const closeDto = {
+      winnerId: 'uni-a',
+      players: [
+        {
+          universityId: 'uni-a',
+          name: 'Player 1',
+          kills: 10,
+          deaths: 2,
+          assists: 5,
+        },
+        {
+          universityId: 'uni-b',
+          name: 'Player 2',
+          kills: 3,
+          deaths: 8,
+          assists: 1,
+        },
+      ],
+    };
 
-    it('should close a confirmed match successfully', async () => {
+    it('closes a match by writing the organizer-picked winner and per-player stats', async () => {
       const mockMatch = {
         id: matchId,
         tournamentId,
         isVerified: false,
-        riotMatchId: 'SEA_12345',
+        winnerId: 'uni-a', // pairing slot from generateBracket, not a real result yet
+        loserId: 'uni-b',
+        title: GameTitle.LOL,
       };
-      const mockClosed = { ...mockMatch, isVerified: true };
-
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-      mockPrismaService.match.update.mockResolvedValue(mockClosed);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...mockMatch,
+        isVerified: true,
+      });
 
-      const result = await service.closeMatch(tournamentId, matchId);
+      const result = await service.closeMatch(tournamentId, matchId, closeDto);
+
+      expect(mockPrismaService.playerStat.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            universityId: 'uni-a',
+            summonerName: 'Player 1',
+            win: true,
+            dataSource: 'PEER_VERIFIED',
+          }),
+          expect.objectContaining({
+            universityId: 'uni-b',
+            summonerName: 'Player 2',
+            win: false,
+            dataSource: 'PEER_VERIFIED',
+          }),
+        ],
+      });
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: matchId },
+        data: { winnerId: 'uni-a', loserId: 'uni-b', isVerified: true },
+      });
       expect(result.isVerified).toBe(true);
+    });
+
+    it('writes the flipped winner/loser when the organizer picks the other team', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a', // pairing slot only — organizer picks uni-b as the real winner below
+        loserId: 'uni-b',
+        title: GameTitle.LOL,
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...mockMatch,
+        isVerified: true,
+      });
+
+      await service.closeMatch(tournamentId, matchId, {
+        ...closeDto,
+        winnerId: 'uni-b',
+      });
+
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: matchId },
+        data: { winnerId: 'uni-b', loserId: 'uni-a', isVerified: true },
+      });
     });
 
     it('should throw NotFoundException if match does not exist', async () => {
       mockPrismaService.match.findFirst.mockResolvedValue(null);
 
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw BadRequestException if match has no riotMatchId (not yet confirmed)', async () => {
-      const mockMatch = {
-        id: matchId,
-        tournamentId,
-        isVerified: false,
-        riotMatchId: null,
-      };
-      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
-
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.closeMatch(tournamentId, matchId, closeDto),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException if match is already closed', async () => {
@@ -552,13 +834,58 @@ describe('TournamentsService', () => {
         id: matchId,
         tournamentId,
         isVerified: true,
-        riotMatchId: 'SEA_12345',
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
       };
       mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
 
-      await expect(service.closeMatch(tournamentId, matchId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.closeMatch(tournamentId, matchId, closeDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if winnerId is not one of the two universities in the match', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          ...closeDto,
+          winnerId: 'uni-zzz',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if a player is attributed to a university not in the match', async () => {
+      const mockMatch = {
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+      };
+      mockPrismaService.match.findFirst.mockResolvedValue(mockMatch);
+
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          winnerId: 'uni-a',
+          players: [
+            {
+              universityId: 'uni-zzz',
+              name: 'Ghost',
+              kills: 0,
+              deaths: 0,
+              assists: 0,
+            },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -617,32 +944,29 @@ describe('TournamentsService', () => {
   // getAllPendingApplications()
   describe('getAllPendingApplications()', () => {
     it('returns pending applications across tournaments, enriched with the real tournament name/game', async () => {
-      mockPrismaService.tournament.findUnique
-        .mockResolvedValueOnce({
-          id: 'tournament-1',
-          status: TournamentStatus.UPCOMING,
-          universities: [],
-        })
-        .mockResolvedValueOnce({
-          name: 'Community Cup',
-          gameTitle: GameTitle.VALORANT,
-        });
-      mockPrismaService.university.findUnique.mockResolvedValue({
-        id: 'uni-1',
-        name: 'University of Makati',
-      });
-
-      await service.applyForTournament('tournament-1', {
-        id: 'user-1',
-        displayName: 'Captain One',
-        universityId: 'uni-1',
-      });
+      mockPrismaService.tournamentApplication.findMany.mockResolvedValue([
+        {
+          id: 'app-1',
+          tournamentId: 'tournament-1',
+          universityId: 'uni-1',
+          userId: 'user-1',
+          applicantName: 'Captain One',
+          status: 'PENDING',
+          teamId: null,
+          teamName: null,
+          appliedAt: new Date('2026-01-01'),
+          university: { name: 'University of Makati' },
+          tournament: { name: 'Community Cup', gameTitle: GameTitle.VALORANT },
+        },
+      ]);
 
       const result = await service.getAllPendingApplications();
 
       expect(result).toEqual([
         expect.objectContaining({
+          id: 'app-1',
           tournamentId: 'tournament-1',
+          universityName: 'University of Makati',
           status: 'PENDING',
           tournamentName: 'Community Cup',
           gameTitle: GameTitle.VALORANT,
@@ -651,6 +975,7 @@ describe('TournamentsService', () => {
     });
 
     it('returns an empty list when nothing is pending', async () => {
+      mockPrismaService.tournamentApplication.findMany.mockResolvedValue([]);
       const result = await service.getAllPendingApplications();
       expect(result).toEqual([]);
     });

@@ -7,7 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import { AccountStatus, Role } from '@prisma/client';
+import { AccountStatus, GameTitle, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -45,6 +45,12 @@ const mockPrismaService = {
     findUnique: jest.fn(),
     findFirst: jest.fn(),
     deleteMany: jest.fn(),
+  },
+  userGameHandle: {
+    upsert: jest.fn(),
+  },
+  teamMember: {
+    updateMany: jest.fn(),
   },
 };
 
@@ -579,6 +585,52 @@ describe('AuthService', () => {
       await expect(
         service.updateUserStatus('invalid', AccountStatus.ACTIVE),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('updateGameHandle()', () => {
+    it('upserts user game handle successfully', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      mockPrismaService.userGameHandle.upsert.mockResolvedValue({
+        id: 'ugh-1',
+        userId: 'user-1',
+        gameTitle: 'VALORANT',
+        handle: 'TenZ#NA1',
+      });
+
+      const result = await service.updateGameHandle('user-1', {
+        gameTitle: 'VALORANT',
+        handle: 'TenZ#NA1',
+      });
+
+      expect(result.handle).toBe('TenZ#NA1');
+      expect(mockPrismaService.userGameHandle.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_gameTitle: {
+            userId: 'user-1',
+            gameTitle: 'VALORANT',
+          },
+        },
+        update: { handle: 'TenZ#NA1' },
+        create: { userId: 'user-1', gameTitle: 'VALORANT', handle: 'TenZ#NA1' },
+      });
+      expect(mockPrismaService.teamMember.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          team: { gameTitle: 'VALORANT' },
+        },
+        data: { gameHandle: 'TenZ#NA1' },
+      });
+    });
+
+    it('throws UnauthorizedException if user not found', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      await expect(
+        service.updateGameHandle('invalid', {
+          gameTitle: GameTitle.VALORANT,
+          handle: 'TenZ#NA1',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

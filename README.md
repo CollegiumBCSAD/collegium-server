@@ -54,8 +54,7 @@ The application loads variables from `.env`. An overview of required values:
 | `GOOGLE_CLIENT_ID` | Google OAuth Client ID | `your-client-id` | From Google Cloud Console Credentials |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client Secret | `your-client-secret` | From Google Cloud Console Credentials |
 | `GOOGLE_CALLBACK_URL` | Google OAuth Callback URL | `http://localhost:5000/auth/google/callback` | Must match authorized redirect URIs in Google Cloud Console |
-| `RIOT_API_KEY` | Riot Games API Key | `RGAPI-...` | Obtained from Riot Developer Portal (dev keys expire in 24h) |
-| `REDIS_URL` | Redis connection URL | `redis://localhost:6379` | Matches redis container configuration |
+| `REDIS_URL` | Redis connection URL | `redis://localhost:6379` | Configured in `app.module.ts`; optional for basic local dev |
 
 ## Database & Migrations
 
