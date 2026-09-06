@@ -159,6 +159,7 @@ export class TournamentsService {
                         id: true,
                         displayName: true,
                         role: true,
+                        gameHandles: true,
                       },
                     },
                   },

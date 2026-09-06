@@ -54,6 +54,7 @@ function inviteCode(): string {
 async function wipe() {
   await prisma.valorantPlayerStat.deleteMany();
   await prisma.playerStat.deleteMany();
+  await prisma.userGameHandle.deleteMany();
   await prisma.tournamentApplication.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.teamMember.deleteMany();
@@ -131,6 +132,21 @@ async function main() {
         },
       });
       teamByShortGame.set(`${uni.short}:${game.title}`, team.id);
+
+      for (let i = 0; i < rosterIds.length; i++) {
+        const userId = rosterIds[i];
+        const handle = i === 0 ? `${uni.short}Cap.${game.tag}` : `${uni.short}${game.tag}${i}`;
+        await prisma.userGameHandle.upsert({
+          where: {
+            userId_gameTitle: {
+              userId,
+              gameTitle: game.title,
+            },
+          },
+          update: { handle },
+          create: { userId, gameTitle: game.title, handle },
+        });
+      }
     }
   }
 
