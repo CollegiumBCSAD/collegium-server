@@ -91,6 +91,7 @@ model University {
   wonMatches    Match[]                @relation("MatchWinner")
   lostMatches   Match[]                @relation("MatchLoser")
   gameRatings   UniversityGameRating[]
+  playerStats   PlayerStat[]
 }
 
 model UniversityGameRating {
@@ -263,7 +264,12 @@ model PlayerStat {
   match                       Match               @relation(fields: [matchId], references: [id])
   userId                      String?
   user                        User?               @relation(fields: [userId], references: [id])
-  puuid                       String
+  // Which side of the match this stat row belongs to — set for manually
+  // (PEER_VERIFIED) entered stats, where the Riot-specific numeric teamId
+  // below doesn't apply.
+  universityId                String?
+  university                  University?         @relation(fields: [universityId], references: [id])
+  puuid                       String?
   summonerName                String
   championName                String?
   kills                       Int
