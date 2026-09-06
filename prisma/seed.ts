@@ -1,5 +1,12 @@
 import 'dotenv/config';
-import { PrismaClient, GameTitle, MatchMode, Role, TournamentStatus } from '@prisma/client';
+import {
+  PrismaClient,
+  GameTitle,
+  MatchMode,
+  Role,
+  TournamentStatus,
+  TournamentApplicationStatus,
+} from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { randomBytes } from 'crypto';
@@ -23,17 +30,21 @@ const UNIVERSITIES = [
   { name: 'Adamson University', domain: 'adamson.edu.ph', short: 'Adamson' },
 ];
 
-const ROSTER_ROLES = ['Duelist', 'Controller', 'Sentinel', 'Initiator', 'Flex'];
+const GAMES: Array<{ title: GameTitle; label: string; tag: string; roles: string[] }> = [
+  { title: GameTitle.VALORANT, label: 'Valorant', tag: 'VALO', roles: ['Duelist', 'Controller', 'Sentinel', 'Initiator', 'Flex'] },
+  { title: GameTitle.LOL, label: 'League of Legends', tag: 'LOL', roles: ['Top', 'Jungle', 'Mid', 'ADC', 'Support'] },
+  { title: GameTitle.MLBB, label: 'Mobile Legends', tag: 'ML', roles: ['Gold', 'EXP', 'Mid', 'Jungle', 'Roam'] },
+  { title: GameTitle.CODM, label: 'Call of Duty Mobile', tag: 'CODM', roles: ['Slayer', 'Objective', 'Anchor', 'Flex', 'Support'] },
+];
 
-const BRACKET: Array<{ id: string; winner: string; loser: string; playedAt: string }> = [
-  { id: 'QF1', winner: 'UMak', loser: 'Adamson', playedAt: '2026-07-20' },
-  { id: 'QF2', winner: 'Ateneo', loser: 'Mapua', playedAt: '2026-07-20' },
-  { id: 'QF3', winner: 'DLSU', loser: 'NU', playedAt: '2026-07-21' },
-  { id: 'QF4', winner: 'UST', loser: 'FEU', playedAt: '2026-07-21' },
-  { id: 'SF1', winner: 'UMak', loser: 'Ateneo', playedAt: '2026-07-27' },
-  { id: 'SF2', winner: 'DLSU', loser: 'UST', playedAt: '2026-07-27' },
-  { id: '3RD', winner: 'Ateneo', loser: 'UST', playedAt: '2026-08-03' },
-  { id: 'FINAL', winner: 'UMak', loser: 'DLSU', playedAt: '2026-08-03' },
+const COMPLETED_BRACKET: Array<{ id: string; round: number; winner: string; loser: string; playedAt: string }> = [
+  { id: 'QF1', round: 1, winner: 'UMak', loser: 'Adamson', playedAt: '2026-07-20' },
+  { id: 'QF2', round: 1, winner: 'Ateneo', loser: 'Mapua', playedAt: '2026-07-20' },
+  { id: 'QF3', round: 1, winner: 'DLSU', loser: 'NU', playedAt: '2026-07-21' },
+  { id: 'QF4', round: 1, winner: 'UST', loser: 'FEU', playedAt: '2026-07-21' },
+  { id: 'SF1', round: 2, winner: 'UMak', loser: 'Ateneo', playedAt: '2026-07-27' },
+  { id: 'SF2', round: 2, winner: 'DLSU', loser: 'UST', playedAt: '2026-07-27' },
+  { id: 'FINAL', round: 3, winner: 'UMak', loser: 'DLSU', playedAt: '2026-08-03' },
 ];
 
 function inviteCode(): string {
@@ -43,6 +54,7 @@ function inviteCode(): string {
 async function wipe() {
   await prisma.valorantPlayerStat.deleteMany();
   await prisma.playerStat.deleteMany();
+  await prisma.tournamentApplication.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.teamMember.deleteMany();
   await prisma.scrim.deleteMany();
@@ -59,14 +71,15 @@ async function main() {
 
   const hashedPassword = await bcrypt.hash(SEED_PASSWORD, 10);
 
-  const universityByShort = new Map<string, { id: string; short: string }>();
-  const teamByShort = new Map<string, { id: string; captainId: string }>();
+  const universityByShort = new Map<string, string>();
+  const captainByShort = new Map<string, string>();
+  const teamByShortGame = new Map<string, string>();
 
   for (const uni of UNIVERSITIES) {
     const university = await prisma.university.create({
       data: { name: uni.name, domain: uni.domain },
     });
-    universityByShort.set(uni.short, { id: university.id, short: uni.short });
+    universityByShort.set(uni.short, university.id);
 
     const captain = await prisma.user.create({
       data: {
@@ -79,49 +92,46 @@ async function main() {
         emailVerified: true,
       },
     });
+    captainByShort.set(uni.short, captain.id);
 
-    const athletes: Array<{ id: string }> = [];
-    for (let i = 0; i < ROSTER_ROLES.length - 1; i++) {
+    const players: string[] = [];
+    for (let i = 1; i <= 4; i++) {
       const athlete = await prisma.user.create({
         data: {
-          email: `player${i + 1}@${uni.domain}`,
+          email: `player${i}@${uni.domain}`,
           password: hashedPassword,
-          displayName: `${uni.short} Player ${i + 1}`,
+          displayName: `${uni.short} Player ${i}`,
           role: Role.ATHLETE,
           universityId: university.id,
           status: 'ACTIVE',
           emailVerified: true,
         },
       });
-      athletes.push(athlete);
+      players.push(athlete.id);
     }
 
-    const team = await prisma.team.create({
-      data: {
-        name: `${uni.short} Valorant`,
-        gameTitle: GameTitle.VALORANT,
-        universityId: university.id,
-        captainId: captain.id,
-        inviteCode: inviteCode(),
-        members: {
-          create: [
-            {
-              userId: captain.id,
-              gameHandle: `${uni.short}Captain#PH1`,
-              preferredRole: ROSTER_ROLES[0],
-              status: 'ACCEPTED',
-            },
-            ...athletes.map((athlete, i) => ({
-              userId: athlete.id,
-              gameHandle: `${uni.short}Player${i + 1}#PH1`,
-              preferredRole: ROSTER_ROLES[i + 1],
+    const rosterIds = [captain.id, ...players];
+
+    for (const game of GAMES) {
+      const team = await prisma.team.create({
+        data: {
+          name: `${uni.short} ${game.label}`,
+          gameTitle: game.title,
+          universityId: university.id,
+          captainId: captain.id,
+          inviteCode: inviteCode(),
+          members: {
+            create: rosterIds.map((userId, i) => ({
+              userId,
+              gameHandle: i === 0 ? `${uni.short}Cap.${game.tag}` : `${uni.short}${game.tag}${i}`,
+              preferredRole: game.roles[i],
               status: 'ACCEPTED' as const,
             })),
-          ],
+          },
         },
-      },
-    });
-    teamByShort.set(uni.short, { id: team.id, captainId: captain.id });
+      });
+      teamByShortGame.set(`${uni.short}:${game.title}`, team.id);
+    }
   }
 
   await prisma.user.create({
@@ -130,44 +140,43 @@ async function main() {
       password: hashedPassword,
       displayName: 'Collegium Admin',
       role: Role.ADMIN,
-      universityId: universityByShort.get('UMak')!.id,
+      universityId: universityByShort.get('UMak')!,
       status: 'ACTIVE',
       emailVerified: true,
     },
   });
 
-  await prisma.user.create({
+  const organizer = await prisma.user.create({
     data: {
       email: 'organizer@umak.edu.ph',
       password: hashedPassword,
       displayName: 'UMak Tournament Host',
       role: Role.ORGANIZER,
-      universityId: universityByShort.get('UMak')!.id,
+      universityId: universityByShort.get('UMak')!,
       status: 'ACTIVE',
       emailVerified: true,
     },
   });
 
-  const tournament = await prisma.tournament.create({
+  const completed = await prisma.tournament.create({
     data: {
       name: 'PH Collegiate Valorant Invitational — Season 1',
+      gameTitle: GameTitle.VALORANT,
+      bracketFormat: 'Single Elimination',
+      teamQuota: 8,
       status: TournamentStatus.COMPLETED,
       universities: {
-        connect: UNIVERSITIES.map((uni) => ({ id: universityByShort.get(uni.short)!.id })),
+        connect: UNIVERSITIES.map((uni) => ({ id: universityByShort.get(uni.short)! })),
       },
     },
   });
 
   const ratings = new Map<string, { rating: number; rd: number; sigma: number; wins: number; losses: number }>();
-
   for (const uni of UNIVERSITIES) {
     ratings.set(uni.short, { rating: 1500, rd: 350, sigma: 0.06, wins: 0, losses: 0 });
   }
 
-  for (const [i, game] of BRACKET.entries()) {
-    const winnerUni = universityByShort.get(game.winner)!;
-    const loserUni = universityByShort.get(game.loser)!;
-
+  for (const [i, game] of COMPLETED_BRACKET.entries()) {
     await prisma.match.create({
       data: {
         riotMatchId: `SEED-VALO-${game.id}`,
@@ -177,21 +186,20 @@ async function main() {
         gameMode: 'Standard',
         platformId: 'PH',
         isVerified: true,
+        round: game.round,
         playedAt: new Date(`${game.playedAt}T14:00:00Z`),
-        winnerId: winnerUni.id,
-        loserId: loserUni.id,
-        tournamentId: tournament.id,
+        winnerId: universityByShort.get(game.winner)!,
+        loserId: universityByShort.get(game.loser)!,
+        tournamentId: completed.id,
       },
     });
 
     const winnerState = ratings.get(game.winner)!;
     const loserState = ratings.get(game.loser)!;
-
     const result = glicko.calculateMatch(
       { rating: winnerState.rating, rd: winnerState.rd, sigma: winnerState.sigma },
       { rating: loserState.rating, rd: loserState.rd, sigma: loserState.sigma },
     );
-
     ratings.set(game.winner, { ...result.winner, wins: winnerState.wins + 1, losses: winnerState.losses });
     ratings.set(game.loser, { ...result.loser, wins: loserState.wins, losses: loserState.losses + 1 });
   }
@@ -200,7 +208,7 @@ async function main() {
     const final = ratings.get(uni.short)!;
     await prisma.universityGameRating.create({
       data: {
-        universityId: universityByShort.get(uni.short)!.id,
+        universityId: universityByShort.get(uni.short)!,
         gameTitle: GameTitle.VALORANT,
         glicko2_rating: final.rating,
         glicko2_rd: final.rd,
@@ -211,7 +219,66 @@ async function main() {
     });
   }
 
-  console.log(`Seeded ${UNIVERSITIES.length} universities, ${UNIVERSITIES.length * 6 + 1} users, ${UNIVERSITIES.length} Valorant teams, 1 tournament with ${BRACKET.length} verified matches.`);
+  let ongoingTournaments = 0;
+  let ongoingMatches = 0;
+
+  for (const game of GAMES) {
+    const tournament = await prisma.tournament.create({
+      data: {
+        name: `${game.label} Collegiate Series — Live`,
+        gameTitle: game.title,
+        bracketFormat: 'Single Elimination',
+        teamQuota: 8,
+        rules: 'Best of 3 up to the final, Best of 5 grand final. Registered varsity rosters only.',
+        status: TournamentStatus.ONGOING,
+        organizerId: organizer.id,
+        universities: {
+          connect: UNIVERSITIES.map((uni) => ({ id: universityByShort.get(uni.short)! })),
+        },
+      },
+    });
+    ongoingTournaments++;
+
+    for (const uni of UNIVERSITIES) {
+      await prisma.tournamentApplication.create({
+        data: {
+          tournamentId: tournament.id,
+          universityId: universityByShort.get(uni.short)!,
+          userId: captainByShort.get(uni.short)!,
+          applicantName: `${uni.short} Team Captain`,
+          teamId: teamByShortGame.get(`${uni.short}:${game.title}`)!,
+          teamName: `${uni.short} ${game.label}`,
+          status: TournamentApplicationStatus.APPROVED,
+        },
+      });
+    }
+
+    for (let i = 0; i < UNIVERSITIES.length; i += 2) {
+      await prisma.match.create({
+        data: {
+          title: game.title,
+          matchMode: MatchMode.TOURNAMENT,
+          tournamentId: tournament.id,
+          gameDuration: 0,
+          gameMode: 'CLASSIC',
+          platformId: 'PH',
+          isVerified: false,
+          round: 1,
+          winnerId: universityByShort.get(UNIVERSITIES[i].short)!,
+          loserId: universityByShort.get(UNIVERSITIES[i + 1].short)!,
+        },
+      });
+      ongoingMatches++;
+    }
+  }
+
+  const teamCount = UNIVERSITIES.length * GAMES.length;
+  console.log(
+    `Seeded ${UNIVERSITIES.length} universities, ${UNIVERSITIES.length * 5 + 2} users, ${teamCount} teams across ${GAMES.length} games.`,
+  );
+  console.log(
+    `Tournaments: 1 completed Valorant invitational + ${ongoingTournaments} organizer-owned ONGOING tournaments (${ongoingMatches} round-1 matches ready to report).`,
+  );
   console.log(`All seeded accounts use password: ${SEED_PASSWORD}`);
 }
 
