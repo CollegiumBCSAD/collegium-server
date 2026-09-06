@@ -137,6 +137,22 @@ export class TeamsService {
       data: { role: Role.ATHLETE },
     });
 
+    // Also sync the captain's typed handle to their default profile IGN
+    await this.prisma.userGameHandle.upsert({
+      where: {
+        userId_gameTitle: {
+          userId: dto.captainId,
+          gameTitle: dto.gameTitle,
+        },
+      },
+      update: { handle: dto.gameHandle.trim() },
+      create: {
+        userId: dto.captainId,
+        gameTitle: dto.gameTitle,
+        handle: dto.gameHandle.trim(),
+      },
+    });
+
     return team;
   }
 
@@ -231,7 +247,25 @@ export class TeamsService {
         where: { id: dto.userId, role: Role.NON_ATHLETE },
         data: { role: Role.ATHLETE },
       });
-    } else if (memberStatus === TeamMemberStatus.PENDING) {
+    }
+
+    // Also sync the athlete's typed handle to their default profile IGN
+    await this.prisma.userGameHandle.upsert({
+      where: {
+        userId_gameTitle: {
+          userId: dto.userId,
+          gameTitle: team.gameTitle,
+        },
+      },
+      update: { handle: dto.gameHandle.trim() },
+      create: {
+        userId: dto.userId,
+        gameTitle: team.gameTitle,
+        handle: dto.gameHandle.trim(),
+      },
+    });
+
+    if (memberStatus === TeamMemberStatus.PENDING) {
       await this.notificationsService.create({
         userId: team.captainId,
         category: NotificationCategory.TEAM,
