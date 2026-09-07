@@ -43,7 +43,6 @@ describe('RankingService', () => {
     }).compile();
 
     service = module.get<RankingService>(RankingService);
-    prisma = module.get<PrismaService>(PrismaService);
     jest.clearAllMocks();
   });
 
