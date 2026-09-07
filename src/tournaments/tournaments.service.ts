@@ -16,9 +16,9 @@ import {
   TournamentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { GlickoService } from '../universities/glicko.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { RankingService } from '../ranking/ranking.service';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -67,9 +67,9 @@ type ApplicationRow = {
 export class TournamentsService {
   constructor(
     private prisma: PrismaService,
-    private glickoService: GlickoService,
     private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
+    private rankingService: RankingService,
   ) {}
 
   private mapApplication(app: ApplicationRow): TournamentApplication {
@@ -890,10 +890,7 @@ export class TournamentsService {
       .filter((id): id is string => !!id);
 
     if (winners.length <= 1) {
-      await this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: { status: TournamentStatus.COMPLETED },
-      });
+      await this.rankingService.closeTournamentRatingPeriod(tournamentId);
       return;
     }
 
@@ -1016,10 +1013,7 @@ export class TournamentsService {
         BracketSide.GRAND_FINAL,
       );
     } else if (gf.length === 1 && gf[0].isVerified) {
-      await this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: { status: TournamentStatus.COMPLETED },
-      });
+      await this.rankingService.closeTournamentRatingPeriod(tournamentId);
     }
   }
 
@@ -1061,61 +1055,8 @@ export class TournamentsService {
       }
     }
 
-    const winnerRating = await this.prisma.universityGameRating.upsert({
-      where: {
-        universityId_gameTitle: {
-          universityId: dto.winnerId,
-          gameTitle: match.title,
-        },
-      },
-      create: { universityId: dto.winnerId, gameTitle: match.title },
-      update: {},
-    });
-
-    const loserRating = await this.prisma.universityGameRating.upsert({
-      where: {
-        universityId_gameTitle: {
-          universityId: loserId,
-          gameTitle: match.title,
-        },
-      },
-      create: { universityId: loserId, gameTitle: match.title },
-      update: {},
-    });
-
-    const result = this.glickoService.calculateMatch(
-      {
-        rating: winnerRating.glicko2_rating,
-        rd: winnerRating.glicko2_rd,
-        sigma: winnerRating.glicko2_sigma,
-      },
-      {
-        rating: loserRating.glicko2_rating,
-        rd: loserRating.glicko2_rd,
-        sigma: loserRating.glicko2_sigma,
-      },
-    );
-
-    await this.prisma.universityGameRating.update({
-      where: { id: winnerRating.id },
-      data: {
-        glicko2_rating: result.winner.rating,
-        glicko2_rd: result.winner.rd,
-        glicko2_sigma: result.winner.sigma,
-        wins: { increment: 1 },
-      },
-    });
-
-    await this.prisma.universityGameRating.update({
-      where: { id: loserRating.id },
-      data: {
-        glicko2_rating: result.loser.rating,
-        glicko2_rd: result.loser.rd,
-        glicko2_sigma: result.loser.sigma,
-        losses: { increment: 1 },
-      },
-    });
-
+    // Persist player stats and mark match as verified. Ratings are NOT updated
+    // here; the rating pipeline is an event-driven batch update at tournament closure.
     await this.prisma.playerStat.createMany({
       data: dto.players.map((player) => ({
         matchId,
@@ -1165,5 +1106,10 @@ export class TournamentsService {
     }
 
     return deleted;
+  }
+
+  // CLOSE TOURNAMENT — Admin or Organizer manually closes tournament and triggers batch rating update
+  async closeTournament(id: string) {
+    return this.rankingService.closeTournamentRatingPeriod(id);
   }
 }

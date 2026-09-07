@@ -87,33 +87,14 @@ model University {
   id            String                 @id @default(uuid())
   name          String
   domain        String                 @unique
-  glicko2_rating Float                 @default(1500)
-  glicko2_rd     Float                 @default(350)
-  glicko2_sigma  Float                 @default(0.06)
   created_at    DateTime               @default(now())
   users         User[]
   teams         Team[]
   tournaments   Tournament[]
   wonMatches    Match[]                @relation("MatchWinner")
   lostMatches   Match[]                @relation("MatchLoser")
-  gameRatings   UniversityGameRating[]
   playerStats   PlayerStat[]
   tournamentApplications TournamentApplication[]
-}
-
-model UniversityGameRating {
-  id             String    @id @default(uuid())
-  universityId   String
-  university     University @relation(fields: [universityId], references: [id], onDelete: Cascade)
-  gameTitle      GameTitle
-  glicko2_rating Float     @default(1500)
-  glicko2_rd     Float     @default(350)
-  glicko2_sigma  Float     @default(0.06)
-  wins           Int       @default(0)
-  losses         Int       @default(0)
-  updatedAt      DateTime  @updatedAt
-
-  @@unique([universityId, gameTitle])
 }
 
 model User {
@@ -148,11 +129,19 @@ model Team {
   captainId       String
   captain         User         @relation("TeamCaptain", fields: [captainId], references: [id])
   inviteCode      String       @unique
+  glicko2_rating  Float        @default(1500)
+  glicko2_rd      Float        @default(350)
+  glicko2_sigma   Float        @default(0.06)
+  rd_anchor       Float        @default(350)
+  last_rated_at   DateTime?
+  min_roster_size Int
+  max_roster_size Int
   createdAt       DateTime     @default(now())
   members         TeamMember[]
   hostedScrims    Scrim[]      @relation("ScrimHost")
   acceptedScrims  Scrim[]      @relation("ScrimOpponent")
   tournamentApplications TournamentApplication[]
+  ratingHistory   RatingHistory[]
 }
 
 model TeamMember {
@@ -250,23 +239,47 @@ enum BracketSide {
 }
 
 model Tournament {
-  id              String           @id @default(uuid())
-  name            String
-  status          TournamentStatus @default(UPCOMING)
-  gameTitle       GameTitle?
-  image           String?
-  imagePublicId   String?
-  bracketFormat   String?
-  teamQuota       Int?
-  rules           String?
-  startDate       DateTime?
-  organizerId     String?
-  organizer       User?            @relation("TournamentOrganizer", fields: [organizerId], references: [id])
-  rejectionReason String?
-  createdAt       DateTime         @default(now())
-  matches         Match[]
-  universities    University[]
-  applications    TournamentApplication[]
+  id                      String                  @id @default(uuid())
+  name                    String
+  status                  TournamentStatus        @default(UPCOMING)
+  gameTitle               GameTitle?
+  image                   String?
+  imagePublicId           String?
+  bracketFormat           String?
+  teamQuota               Int?
+  rules                   String?
+  startDate               DateTime?
+  organizerId             String?
+  organizer               User?                   @relation("TournamentOrganizer", fields: [organizerId], references: [id])
+  rejectionReason         String?
+  event_weight            Float?
+  locked_at               DateTime?
+  rating_period_closed_at DateTime?
+  createdAt               DateTime                @default(now())
+  matches                 Match[]
+  universities            University[]
+  applications            TournamentApplication[]
+  ratingHistories         RatingHistory[]
+}
+
+model RatingHistory {
+  id            String      @id @default(uuid())
+  team_id       String
+  team          Team        @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  tournament_id String
+  tournament    Tournament  @relation(fields: [tournament_id], references: [id], onDelete: Cascade)
+  rating_before Float
+  rd_before     Float
+  sigma_before  Float
+  rating_after  Float
+  rd_after      Float
+  sigma_after   Float
+  raw_delta     Float
+  event_weight  Float
+  closed_at     DateTime    @default(now())
+
+  @@index([team_id])
+  @@index([tournament_id])
 }
 
 model TournamentApplication {

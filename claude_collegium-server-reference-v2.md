@@ -462,7 +462,7 @@ archive**, remaining viewable by members rather than being deactivated/deleted.
 | Area | State |
 |---|---|
 | Database schema | Pre-pivot as of the last verified check — `glicko2_*` still on `University`; no `Team`, `ORGANIZER`, or tournament-review fields yet |
-| Rating engine (`lib/glicko2.util.ts`) | Written and unit-tested against Glickman's worked example; not yet wired to a live schema |
+| Rating engine | NOT yet implemented. `src/universities/glicko.service.ts` is a superseded per-match implementation pending replacement |
 | `ranking/`, `teams/`, `organizer/`, `bracket/`, `war-room/` | Specified above; not yet merged |
 | OCR | Standalone Python scripts (separate `collegium-ocr` repo) — not yet wrapped as a callable service |
 

@@ -15,41 +15,38 @@ export class UniversitiesService {
   async findAll(gameTitle?: GameTitle) {
     if (!gameTitle) {
       return this.prisma.university.findMany({
-        orderBy: { glicko2_rating: 'desc' },
-        include: { gameRatings: true },
+        orderBy: { name: 'asc' },
       });
     }
 
-    const universities = await this.prisma.university.findMany({
+    const teams = await this.prisma.team.findMany({
+      where: { gameTitle },
+      orderBy: { glicko2_rating: 'desc' },
       include: {
-        gameRatings: {
-          where: { gameTitle },
-        },
+        university: true,
       },
     });
 
-    const mapped = universities.map((uni) => {
-      const ratingRecord = uni.gameRatings[0];
-      return {
-        id: uni.id,
-        name: uni.name,
-        domain: uni.domain,
-        glicko2_rating: ratingRecord ? ratingRecord.glicko2_rating : 1500,
-        glicko2_rd: ratingRecord ? ratingRecord.glicko2_rd : 350,
-        glicko2_sigma: ratingRecord ? ratingRecord.glicko2_sigma : 0.06,
-        wins: ratingRecord ? ratingRecord.wins : 0,
-        losses: ratingRecord ? ratingRecord.losses : 0,
-        createdAt: uni.created_at.toISOString(),
-      };
-    });
-
-    return mapped.sort((a, b) => b.glicko2_rating - a.glicko2_rating);
+    return teams.map((team) => ({
+      id: team.university.id,
+      name: team.university.name,
+      domain: team.university.domain,
+      teamId: team.id,
+      teamName: team.name,
+      gameTitle: team.gameTitle,
+      glicko2_rating: team.glicko2_rating,
+      glicko2_rd: team.glicko2_rd,
+      glicko2_sigma: team.glicko2_sigma,
+      createdAt: team.university.created_at.toISOString(),
+    }));
   }
 
   async findOne(id: string) {
     const university = await this.prisma.university.findUnique({
       where: { id },
-      include: { gameRatings: true },
+      include: {
+        teams: true,
+      },
     });
 
     if (!university) {

@@ -263,4 +263,15 @@ export class TournamentsController {
       closeMatchDto,
     );
   }
+
+  // POST /tournaments/:id/close — Admin or Organizer manually closes tournament and triggers batch rating update
+  @Post(':id/close')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({
+    summary:
+      'Close tournament and trigger batch Glicko-2 rating update across all verified matches',
+  })
+  closeTournament(@Param('id') tournamentId: string) {
+    return this.tournamentsService.closeTournament(tournamentId);
+  }
 }

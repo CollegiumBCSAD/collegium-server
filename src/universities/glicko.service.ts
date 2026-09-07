@@ -1,3 +1,9 @@
+/**
+ * SUPERSEDED: This is the legacy per-match Glicko-2 calculation service.
+ * It is retained temporarily for reference and legacy test compatibility.
+ * DO NOT call this service from any active application workflow.
+ * The production rating pipeline uses batch closure calculation under ranking/.
+ */
 import { Injectable } from '@nestjs/common';
 
 export interface GlickoPlayer {

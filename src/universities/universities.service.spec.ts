@@ -11,6 +11,9 @@ const mockPrismaService = {
     update: jest.fn(),
     delete: jest.fn(),
   },
+  team: {
+    findMany: jest.fn(),
+  },
 };
 
 describe('UniversitiesService', () => {
@@ -33,18 +36,17 @@ describe('UniversitiesService', () => {
   });
 
   describe('findAll()', () => {
-    it('should return an array of universities ordered by glicko2_rating descending', async () => {
+    it('should return an array of universities ordered by name ascending when no gameTitle is provided', async () => {
       const mockUniversities = [
-        { id: '1', name: 'Uni A', glicko2_rating: 1600 },
-        { id: '2', name: 'Uni B', glicko2_rating: 1500 },
+        { id: '1', name: 'Adamson University' },
+        { id: '2', name: 'Ateneo de Manila University' },
       ];
       mockPrismaService.university.findMany.mockResolvedValue(mockUniversities);
 
       const result = await service.findAll();
 
       expect(mockPrismaService.university.findMany).toHaveBeenCalledWith({
-        orderBy: { glicko2_rating: 'desc' },
-        include: { gameRatings: true },
+        orderBy: { name: 'asc' },
       });
       expect(result).toEqual(mockUniversities);
     });
@@ -59,7 +61,9 @@ describe('UniversitiesService', () => {
 
       expect(mockPrismaService.university.findUnique).toHaveBeenCalledWith({
         where: { id: '1' },
-        include: { gameRatings: true },
+        include: {
+          teams: true,
+        },
       });
       expect(result).toEqual(mockUniversity);
     });

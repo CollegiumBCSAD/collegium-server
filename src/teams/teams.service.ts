@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  GameTitle,
   NotificationCategory,
   NotificationType,
   Role,
@@ -98,6 +99,8 @@ export class TeamsService {
     }
 
     const inviteCode = this.generateInviteCode();
+    const min_roster_size = 5;
+    const max_roster_size = dto.gameTitle === GameTitle.LOL ? 7 : 6;
 
     const team = await this.prisma.team.create({
       data: {
@@ -106,6 +109,8 @@ export class TeamsService {
         universityId: dto.universityId,
         captainId: dto.captainId,
         inviteCode,
+        min_roster_size,
+        max_roster_size,
         members: {
           create: {
             userId: dto.captainId,
