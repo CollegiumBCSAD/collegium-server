@@ -14,6 +14,9 @@ const mockPrismaService = {
   team: {
     findMany: jest.fn(),
   },
+  match: {
+    findMany: jest.fn(),
+  },
 };
 
 describe('UniversitiesService', () => {
@@ -49,6 +52,77 @@ describe('UniversitiesService', () => {
         orderBy: { name: 'asc' },
       });
       expect(result).toEqual(mockUniversities);
+    });
+
+    it('should return enriched teams with match stats when gameTitle is provided', async () => {
+      const createdAt = new Date('2026-01-01T00:00:00.000Z');
+      const mockTeams = [
+        {
+          id: 'team-1',
+          name: 'UMak Valorant',
+          gameTitle: 'VALORANT',
+          glicko2_rating: 1650,
+          glicko2_rd: 65,
+          glicko2_sigma: 0.06,
+          universityId: 'uni-1',
+          university: {
+            id: 'uni-1',
+            name: 'University of Makati',
+            domain: 'umak.edu.ph',
+            created_at: createdAt,
+          },
+        },
+      ];
+      const mockMatches = [
+        {
+          id: 'm1',
+          title: 'VALORANT',
+          isVerified: true,
+          matchMode: 'TOURNAMENT',
+          winnerId: 'uni-1',
+          loserId: 'uni-2',
+          playedAt: new Date('2026-08-01'),
+        },
+        {
+          id: 'm2',
+          title: 'VALORANT',
+          isVerified: true,
+          matchMode: 'TOURNAMENT',
+          winnerId: 'uni-1',
+          loserId: 'uni-3',
+          playedAt: new Date('2026-07-25'),
+        },
+      ];
+
+      mockPrismaService.team.findMany.mockResolvedValue(mockTeams);
+      mockPrismaService.match.findMany.mockResolvedValue(mockMatches);
+
+      const result = await service.findAll('VALORANT');
+
+      expect(mockPrismaService.team.findMany).toHaveBeenCalledWith({
+        where: { gameTitle: 'VALORANT' },
+        orderBy: { glicko2_rating: 'desc' },
+        include: { university: true },
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        id: 'uni-1',
+        name: 'University of Makati',
+        domain: 'umak.edu.ph',
+        teamId: 'team-1',
+        teamName: 'UMak Valorant',
+        gameTitle: 'VALORANT',
+        glicko2_rating: 1650,
+        glicko2_rd: 65,
+        glicko2_sigma: 0.06,
+        wins: 2,
+        losses: 0,
+        winRate: 100,
+        streak: '2W',
+        isProvisional: false,
+        createdAt: createdAt.toISOString(),
+      });
     });
   });
 

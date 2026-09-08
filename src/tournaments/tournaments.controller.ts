@@ -21,6 +21,7 @@ import {
   ApiConsumes,
 } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -49,7 +50,8 @@ const IMAGE_UPLOAD_OPTIONS = {
 export class TournamentsController {
   constructor(private readonly tournamentsService: TournamentsService) {}
 
-  // GET /tournaments — Anyone logged in can list all tournaments (optionally filtered by status)
+  // GET /tournaments — Anyone can list all public tournaments (optionally filtered by status)
+  @Public()
   @Get()
   @ApiOperation({ summary: 'List all tournaments' })
   findAll(@Query('status') status?: TournamentStatus) {
@@ -230,14 +232,16 @@ export class TournamentsController {
     return this.tournamentsService.generateBracket(tournamentId);
   }
 
-  // GET /tournaments/:id/bracket — Anyone logged in can view the bracket
+  // GET /tournaments/:id/bracket — Anyone can view the bracket
+  @Public()
   @Get(':id/bracket')
   @ApiOperation({ summary: 'View the tournament bracket' })
   getBracket(@Param('id') tournamentId: string) {
     return this.tournamentsService.getBracket(tournamentId);
   }
 
-  // GET /tournaments/:id — Anyone logged in can view tournament details
+  // GET /tournaments/:id — Anyone can view tournament details
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get tournament details by ID' })
   findOne(@Param('id') tournamentId: string) {

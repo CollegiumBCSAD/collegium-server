@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { UpdateUniversityDto } from './dto/update-university.dto';
-import { GameTitle } from '@prisma/client';
+import { GameTitle, MatchMode } from '@prisma/client';
 
 @Injectable()
 export class UniversitiesService {
@@ -19,26 +19,88 @@ export class UniversitiesService {
       });
     }
 
-    const teams = await this.prisma.team.findMany({
-      where: { gameTitle },
-      orderBy: { glicko2_rating: 'desc' },
-      include: {
-        university: true,
-      },
-    });
+    const [teams, matches] = await Promise.all([
+      this.prisma.team.findMany({
+        where: { gameTitle },
+        orderBy: { glicko2_rating: 'desc' },
+        include: {
+          university: true,
+        },
+      }),
+      this.prisma.match.findMany({
+        where: {
+          title: gameTitle,
+          isVerified: true,
+          matchMode: MatchMode.TOURNAMENT,
+        },
+        orderBy: {
+          playedAt: 'desc',
+        },
+      }),
+    ]);
 
-    return teams.map((team) => ({
-      id: team.university.id,
-      name: team.university.name,
-      domain: team.university.domain,
-      teamId: team.id,
-      teamName: team.name,
-      gameTitle: team.gameTitle,
-      glicko2_rating: team.glicko2_rating,
-      glicko2_rd: team.glicko2_rd,
-      glicko2_sigma: team.glicko2_sigma,
-      createdAt: team.university.created_at.toISOString(),
-    }));
+    return teams.map((team) => {
+      const teamMatches = matches.filter(
+        (m) =>
+          m.winnerId === team.universityId ||
+          m.loserId === team.universityId ||
+          m.winnerId === team.id ||
+          m.loserId === team.id,
+      );
+
+      let wins = 0;
+      let losses = 0;
+
+      for (const m of teamMatches) {
+        if (m.winnerId === team.universityId || m.winnerId === team.id) {
+          wins++;
+        } else if (m.loserId === team.universityId || m.loserId === team.id) {
+          losses++;
+        }
+      }
+
+      const totalMatches = wins + losses;
+      const winRate =
+        totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0;
+
+      let streak = '-';
+      if (teamMatches.length > 0) {
+        const firstMatchWon =
+          teamMatches[0].winnerId === team.universityId ||
+          teamMatches[0].winnerId === team.id;
+        let count = 0;
+        for (const m of teamMatches) {
+          const won =
+            m.winnerId === team.universityId || m.winnerId === team.id;
+          if (won === firstMatchWon) {
+            count++;
+          } else {
+            break;
+          }
+        }
+        streak = `${count}${firstMatchWon ? 'W' : 'L'}`;
+      }
+
+      const isProvisional = team.glicko2_rd >= 100 || totalMatches === 0;
+
+      return {
+        id: team.university.id,
+        name: team.university.name,
+        domain: team.university.domain,
+        teamId: team.id,
+        teamName: team.name,
+        gameTitle: team.gameTitle,
+        glicko2_rating: team.glicko2_rating,
+        glicko2_rd: team.glicko2_rd,
+        glicko2_sigma: team.glicko2_sigma,
+        wins,
+        losses,
+        winRate,
+        streak,
+        isProvisional,
+        createdAt: team.university.created_at.toISOString(),
+      };
+    });
   }
 
   async findOne(id: string) {
