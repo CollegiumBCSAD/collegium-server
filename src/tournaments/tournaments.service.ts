@@ -337,10 +337,9 @@ export class TournamentsService {
       );
     }
 
-    if (
-      tournament.status !== TournamentStatus.UPCOMING &&
-      tournament.status !== TournamentStatus.PENDING_APPROVAL
-    ) {
+    // Only an approved (UPCOMING) tournament can start — allowing
+    // PENDING_APPROVAL here bypassed admin approval via the fallback below.
+    if (tournament.status !== TournamentStatus.UPCOMING) {
       throw new BadRequestException(
         `Cannot start tournament with status ${tournament.status}`,
       );
@@ -485,10 +484,23 @@ export class TournamentsService {
         where: { id: target.id },
       });
 
-      await this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: { universities: { disconnect: { id: target.universityId } } },
-      });
+      // Keep the university connected if another approved squad still reps it.
+      const stillRepresented =
+        await this.prisma.tournamentApplication.findFirst({
+          where: {
+            tournamentId,
+            universityId: target.universityId,
+            status: TournamentApplicationStatus.APPROVED,
+            id: { not: target.id },
+          },
+        });
+
+      if (!stillRepresented) {
+        await this.prisma.tournament.update({
+          where: { id: tournamentId },
+          data: { universities: { disconnect: { id: target.universityId } } },
+        });
+      }
     }
 
     return { success: true, message: 'Application withdrawn successfully' };
@@ -535,6 +547,22 @@ export class TournamentsService {
 
     if (!target) {
       throw new NotFoundException('Application not found');
+    }
+
+    // The bracket is keyed on University — a second approved squad from the
+    // same university would silently vanish (connect is a no-op). Reject it.
+    const rivalSquad = await this.prisma.tournamentApplication.findFirst({
+      where: {
+        tournamentId,
+        universityId: target.universityId,
+        status: TournamentApplicationStatus.APPROVED,
+        id: { not: target.id },
+      },
+    });
+    if (rivalSquad) {
+      throw new BadRequestException(
+        'This university already has an approved squad in this tournament',
+      );
     }
 
     const updated = await this.prisma.tournamentApplication.update({
@@ -641,13 +669,13 @@ export class TournamentsService {
     } else if (tournament.bracketFormat === 'Double Elimination') {
       await this.generateDoubleEliminationRound1(tournamentId, universities);
     } else {
-      this.assertEvenContestants(universities.length);
-      await this.createRound(
-        tournamentId,
-        this.shuffle(universities).map((u) => u.id),
-        1,
-        null,
+      const seeded = await this.seedByRating(
+        universities,
+        tournament.gameTitle,
       );
+      await this.prisma.match.createMany({
+        data: this.buildEliminationRound1(tournamentId, seeded, null),
+      });
     }
 
     // Move tournament to ONGOING now that the bracket is seeded
@@ -684,20 +712,84 @@ export class TournamentsService {
 
   // --- Bracket generation & advancement helpers -----------------------------
 
-  private assertEvenContestants(count: number) {
-    if (count % 2 !== 0) {
-      throw new BadRequestException(
-        'An even number of universities is required to generate a bracket',
-      );
-    }
-  }
-
   private isPowerOfTwo(n: number) {
     return n >= 4 && (n & (n - 1)) === 0;
   }
 
+  private nextPowerOfTwo(n: number): number {
+    let p = 1;
+    while (p < n) p *= 2;
+    return p;
+  }
+
   private shuffle<T>(list: T[]): T[] {
-    return [...list].sort(() => Math.random() - 0.5);
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Seed strongest-first by Glicko-2 rating; unrated default to 1500, ties random.
+  private async seedByRating(
+    universities: { id: string }[],
+    gameTitle: GameTitle | null,
+  ): Promise<string[]> {
+    const ratings = gameTitle
+      ? await this.prisma.universityGameRating.findMany({
+          where: {
+            gameTitle,
+            universityId: { in: universities.map((u) => u.id) },
+          },
+          select: { universityId: true, glicko2_rating: true },
+        })
+      : [];
+    const byId = new Map(
+      ratings.map((r) => [r.universityId, r.glicko2_rating]),
+    );
+    return universities
+      .map((u) => ({
+        id: u.id,
+        rating: byId.get(u.id) ?? 1500,
+        rand: Math.random(),
+      }))
+      .sort((a, b) => b.rating - a.rating || a.rand - b.rand)
+      .map((u) => u.id);
+  }
+
+  // Round 1 for any field size: pad to the next power of 2 with byes, top seeds
+  // get a pre-verified bye match (no opponent, no rating change) that advances
+  // them to round 2; the rest pair strongest-vs-weakest.
+  // ponytail: round-2 pairing follows creation order, not a fixed positional
+  // tree — byes reward top seeds, they don't guarantee seed 1 vs seed 2 in the
+  // final. Track positions explicitly if a true seeded tree is needed.
+  private buildEliminationRound1(
+    tournamentId: string,
+    seeded: string[],
+    bracketSide: BracketSide | null,
+  ) {
+    const bracketSize = this.nextPowerOfTwo(seeded.length);
+    const byeCount = bracketSize - seeded.length;
+    const byeTeams = seeded.slice(0, byeCount);
+    const playing = seeded.slice(byeCount);
+
+    const rows = byeTeams.map((t) =>
+      this.matchRow(tournamentId, t, null, 1, bracketSide, true),
+    );
+    for (let i = 0; i < playing.length / 2; i++) {
+      rows.push(
+        this.matchRow(
+          tournamentId,
+          playing[i],
+          playing[playing.length - 1 - i],
+          1,
+          bracketSide,
+          false,
+        ),
+      );
+    }
+    return rows;
   }
 
   private pairUp<T>(list: T[]): [T, T][] {
@@ -711,9 +803,10 @@ export class TournamentsService {
   private matchRow(
     tournamentId: string,
     winnerId: string,
-    loserId: string,
+    loserId: string | null,
     round: number,
     bracketSide: BracketSide | null,
+    isVerified = false,
   ) {
     return {
       title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
@@ -723,8 +816,8 @@ export class TournamentsService {
       gameMode: 'CLASSIC',
       platformId: 'PH',
       winnerId,
-      loserId,
-      isVerified: false,
+      loserId: loserId ?? undefined,
+      isVerified,
       round,
       bracketSide: bracketSide ?? undefined,
     };
@@ -779,6 +872,8 @@ export class TournamentsService {
     const ranked = [...wins.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id]) => id);
+
+    if (ranked.length < 2) return;
 
     // Playoffs need a power-of-2 field; drop the lowest seeds that don't fit.
     let bracketSize = 2;
@@ -1061,6 +1156,17 @@ export class TournamentsService {
       }
     }
 
+    // Atomic claim: only one concurrent close flips isVerified false->true, so
+    // the Glicko update and stat insert can't run twice. After validation so a
+    // bad payload can't leave the match stuck verified.
+    const claim = await this.prisma.match.updateMany({
+      where: { id: matchId, tournamentId, isVerified: false },
+      data: { isVerified: true },
+    });
+    if (claim.count === 0) {
+      throw new BadRequestException('This match is already closed');
+    }
+
     const winnerRating = await this.prisma.universityGameRating.upsert({
       where: {
         universityId_gameTitle: {
@@ -1149,6 +1255,12 @@ export class TournamentsService {
     if (!tournament) {
       throw new NotFoundException('Tournament not found');
     }
+
+    // PlayerStat has no cascade on its match FK, so delete stats before matches
+    // or the match delete hits a foreign-key violation.
+    await this.prisma.playerStat.deleteMany({
+      where: { match: { tournamentId: id } },
+    });
 
     await this.prisma.match.deleteMany({
       where: { tournamentId: id },
