@@ -31,14 +31,17 @@ const mockPrismaService = {
     findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
     deleteMany: jest.fn(),
   },
   playerStat: {
     createMany: jest.fn(),
+    deleteMany: jest.fn(),
   },
   universityGameRating: {
     upsert: jest.fn(),
     update: jest.fn(),
+    findMany: jest.fn(),
   },
   tournamentApplication: {
     findMany: jest.fn(),
@@ -90,7 +93,9 @@ describe('TournamentsService', () => {
       }),
     );
     mockPrismaService.universityGameRating.update.mockResolvedValue({});
+    mockPrismaService.universityGameRating.findMany.mockResolvedValue([]);
     mockPrismaService.playerStat.createMany.mockResolvedValue({ count: 0 });
+    mockPrismaService.match.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it('should be defined', () => {
@@ -468,16 +473,29 @@ describe('TournamentsService', () => {
       );
     });
 
-    it('should throw BadRequestException if odd number of universities are registered', async () => {
-      mockPrismaService.tournament.findUnique.mockResolvedValue({
-        id: tournamentId,
-        status: TournamentStatus.UPCOMING,
-        universities: [{ id: 'uni-1' }, { id: 'uni-2' }, { id: 'uni-3' }],
-      });
+    it('seeds a single-elim round 1 with a bye for an odd (non-power-of-2) field', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          gameTitle: GameTitle.LOL,
+          universities: [{ id: 'uni-1' }, { id: 'uni-2' }, { id: 'uni-3' }],
+        })
+        .mockResolvedValueOnce({ id: tournamentId, matches: [], universities: [] });
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.tournament.update.mockResolvedValue({});
 
-      await expect(service.generateBracket(tournamentId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await service.generateBracket(tournamentId);
+
+      const { data } = mockPrismaService.match.createMany.mock.calls[0][0] as {
+        data: Array<{ round: number; isVerified: boolean; loserId?: string }>;
+      };
+      // 3 teams -> pad to 4: one pre-verified bye + one real round-1 match.
+      expect(data).toHaveLength(2);
+      const byes = data.filter((m) => m.isVerified);
+      expect(byes).toHaveLength(1);
+      expect(byes[0].loserId).toBeUndefined();
+      expect(data.every((m) => m.round === 1)).toBe(true);
     });
 
     it('should throw BadRequestException if tournament is not UPCOMING', async () => {
@@ -898,6 +916,7 @@ describe('TournamentsService', () => {
         id: tournamentId,
         imagePublicId: 'collegium/tournaments/abc123',
       });
+      mockPrismaService.playerStat.deleteMany.mockResolvedValue({ count: 4 });
       mockPrismaService.match.deleteMany.mockResolvedValue({ count: 2 });
       mockPrismaService.tournament.delete.mockResolvedValue({
         id: tournamentId,
@@ -906,6 +925,9 @@ describe('TournamentsService', () => {
 
       await service.deleteTournament(tournamentId);
 
+      expect(mockPrismaService.playerStat.deleteMany).toHaveBeenCalledWith({
+        where: { match: { tournamentId } },
+      });
       expect(mockPrismaService.match.deleteMany).toHaveBeenCalledWith({
         where: { tournamentId },
       });
