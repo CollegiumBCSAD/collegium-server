@@ -9,6 +9,7 @@ import {
   NotificationCategory,
   NotificationType,
   ScrimStatus,
+  DataSource,
 } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -45,6 +46,18 @@ const GAMES: Array<{
   { title: GameTitle.MLBB, label: 'Mobile Legends', tag: 'ML', roles: ['Gold', 'EXP', 'Mid', 'Jungle', 'Roam'], minRosterSize: 5, maxRosterSize: 6 },
   { title: GameTitle.CODM, label: 'Call of Duty Mobile', tag: 'CODM', roles: ['Slayer', 'Objective', 'Anchor', 'Flex', 'Support'], minRosterSize: 5, maxRosterSize: 6 },
 ];
+
+// Deterministic per-player stat line so a reseed always reproduces the same box
+// score. Winners trend higher, but the spread across roster slots is what makes
+// the MVP crown land on different players from match to match.
+function seededStatLine(matchIndex: number, slot: number, won: boolean) {
+  const swing = (matchIndex * 3 + slot * 5) % 7;
+  return {
+    kills: Math.max(2, (won ? 17 : 11) + swing - 3),
+    deaths: Math.max(1, (won ? 11 : 16) + ((matchIndex + slot * 2) % 5) - 2),
+    assists: Math.max(0, 3 + ((matchIndex * 2 + slot) % 8)),
+  };
+}
 
 const COMPLETED_BRACKET: Array<{ id: string; round: number; winner: string; loser: string; playedAt: string }> = [
   { id: 'QF1', round: 1, winner: 'UMak', loser: 'Adamson', playedAt: '2026-07-20' },
@@ -206,7 +219,7 @@ async function main() {
   });
 
   for (const [i, game] of COMPLETED_BRACKET.entries()) {
-    await prisma.match.create({
+    const match = await prisma.match.create({
       data: {
         riotMatchId: `SEED-VALO-${game.id}`,
         title: GameTitle.VALORANT,
@@ -222,6 +235,33 @@ async function main() {
         tournamentId: completed.id,
       },
     });
+
+    // Without these, a finished bracket has a winner but an empty box score —
+    // the match history and KDA tables would have nothing to render.
+    for (const [short, won] of [
+      [game.winner, true],
+      [game.loser, false],
+    ] as const) {
+      const roster = await prisma.teamMember.findMany({
+        where: {
+          teamId: teamByShortGame.get(`${short}:${GameTitle.VALORANT}`)!,
+          status: 'ACCEPTED',
+        },
+        orderBy: { joinedAt: 'asc' },
+      });
+
+      await prisma.playerStat.createMany({
+        data: roster.map((member, slot) => ({
+          matchId: match.id,
+          universityId: universityByShort.get(short)!,
+          userId: member.userId,
+          summonerName: member.gameHandle,
+          ...seededStatLine(i, slot, won),
+          win: won,
+          dataSource: DataSource.PEER_VERIFIED,
+        })),
+      });
+    }
   }
 
   // Run the real Glicko-2 batch closure (same pipeline the app calls at tournament

@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { GameTitle } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UniversitiesService } from './universities.service';
 
@@ -127,25 +128,113 @@ describe('UniversitiesService', () => {
   });
 
   describe('findOne()', () => {
-    it('should return a university if found', async () => {
-      const mockUniversity = { id: '1', name: 'Uni A' };
+    it('should return a university with its accepted rosters if found', async () => {
+      const mockUniversity = { id: '1', name: 'Uni A', teams: [] };
       mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
 
       const result = await service.findOne('1');
 
-      expect(mockPrismaService.university.findUnique).toHaveBeenCalledWith({
-        where: { id: '1' },
-        include: {
-          teams: true,
-        },
-      });
+      const call = mockPrismaService.university.findUnique.mock
+        .calls[0][0] as Record<string, any>;
+      expect(call.where).toEqual({ id: '1' });
+      expect(call.include.teams.select.members).toBeDefined();
       expect(result).toEqual(mockUniversity);
+    });
+
+    it('should never select inviteCode, because the profile route is public', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue({ id: '1' });
+
+      await service.findOne('1');
+
+      const call = mockPrismaService.university.findUnique.mock
+        .calls[0][0] as Record<string, any>;
+      expect(call.include.teams.select.inviteCode).toBeUndefined();
     });
 
     it('should throw NotFoundException if university is not found', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(null);
 
       await expect(service.findOne('999')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findMatches()', () => {
+    const university = { id: 'uni-1' };
+
+    const playedMatch = {
+      id: 'match-1',
+      playedAt: new Date('2026-08-16T10:00:00.000Z'),
+      tournamentId: 'tour-1',
+      tournament: { id: 'tour-1', name: 'Metro Clash', gameTitle: 'VALORANT' },
+      winnerId: 'uni-1',
+      loserId: 'uni-2',
+      winner: { id: 'uni-1', name: 'Uni A' },
+      loser: { id: 'uni-2', name: 'Uni B' },
+      round: 2,
+      bracketSide: null,
+      playerStats: [],
+    };
+
+    it('should report the opponent and a WIN when the university won', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(university);
+      mockPrismaService.match.findMany
+        .mockResolvedValueOnce([playedMatch])
+        .mockResolvedValueOnce([
+          { tournamentId: 'tour-1', round: 1, bracketSide: null },
+          { tournamentId: 'tour-1', round: 2, bracketSide: null },
+        ]);
+
+      const [entry] = await service.findMatches('uni-1');
+
+      expect(entry.result).toBe('WIN');
+      expect(entry.opponent).toEqual({ id: 'uni-2', name: 'Uni B' });
+      expect(entry.tournamentName).toBe('Metro Clash');
+      // Round 2 of 2 is the last round of its bracket.
+      expect(entry.roundLabel).toBe('GRAND FINALS');
+    });
+
+    it('should report a LOSS and the winning opponent when the university lost', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(university);
+      mockPrismaService.match.findMany
+        .mockResolvedValueOnce([{ ...playedMatch, winnerId: 'uni-2', loserId: 'uni-1' }])
+        .mockResolvedValueOnce([{ tournamentId: 'tour-1', round: 2, bracketSide: null }]);
+
+      const [entry] = await service.findMatches('uni-1');
+
+      expect(entry.result).toBe('LOSS');
+      expect(entry.opponent).toEqual({ id: 'uni-1', name: 'Uni A' });
+    });
+
+    it('should exclude byes, which are verified but were never played', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(university);
+      mockPrismaService.match.findMany.mockResolvedValue([]);
+
+      await service.findMatches('uni-1');
+
+      const where = (
+        mockPrismaService.match.findMany.mock.calls[0][0] as Record<string, any>
+      ).where;
+      expect(where.loserId).toEqual({ not: null });
+      expect(where.isVerified).toBe(true);
+    });
+
+    it('should filter on the tournament game title, not the unreliable Match.title', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(university);
+      mockPrismaService.match.findMany.mockResolvedValue([]);
+
+      await service.findMatches('uni-1', GameTitle.VALORANT);
+
+      const where = (
+        mockPrismaService.match.findMany.mock.calls[0][0] as Record<string, any>
+      ).where;
+      expect(where.tournament).toEqual({ gameTitle: GameTitle.VALORANT });
+      expect(where.title).toBeUndefined();
+    });
+
+    it('should throw NotFoundException if the university does not exist', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(null);
+
+      await expect(service.findMatches('nope')).rejects.toThrow(NotFoundException);
     });
   });
 

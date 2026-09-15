@@ -6,7 +6,12 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { UpdateUniversityDto } from './dto/update-university.dto';
-import { GameTitle, MatchMode } from '@prisma/client';
+import {
+  BracketSide,
+  GameTitle,
+  MatchMode,
+  TeamMemberStatus,
+} from '@prisma/client';
 
 @Injectable()
 export class UniversitiesService {
@@ -107,7 +112,39 @@ export class UniversitiesService {
     const university = await this.prisma.university.findUnique({
       where: { id },
       include: {
-        teams: true,
+        teams: {
+          orderBy: { gameTitle: 'asc' },
+          // Explicit select rather than `true`: this route is @Public(), and a
+          // bare include would publish every squad's inviteCode.
+          select: {
+            id: true,
+            name: true,
+            gameTitle: true,
+            universityId: true,
+            captainId: true,
+            glicko2_rating: true,
+            glicko2_rd: true,
+            glicko2_sigma: true,
+            last_rated_at: true,
+            min_roster_size: true,
+            max_roster_size: true,
+            createdAt: true,
+            captain: { select: { id: true, displayName: true } },
+            members: {
+              where: { status: TeamMemberStatus.ACCEPTED },
+              orderBy: { joinedAt: 'asc' },
+              select: {
+                id: true,
+                userId: true,
+                gameHandle: true,
+                preferredRole: true,
+                status: true,
+                joinedAt: true,
+                user: { select: { id: true, displayName: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -116,6 +153,140 @@ export class UniversitiesService {
     }
 
     return university;
+  }
+
+  async findMatches(id: string, gameTitle?: GameTitle) {
+    const university = await this.prisma.university.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!university) {
+      throw new NotFoundException('University not found.');
+    }
+
+    const matches = await this.prisma.match.findMany({
+      where: {
+        matchMode: MatchMode.TOURNAMENT,
+        isVerified: true,
+        // A bye is persisted as a pre-verified match with no opponent. It was
+        // never played, so it is not a history row.
+        loserId: { not: null },
+        OR: [{ winnerId: id }, { loserId: id }],
+        // Filtered on the tournament's title, not Match.title: bracket
+        // generation stamps every match it creates LOL regardless of game.
+        ...(gameTitle ? { tournament: { gameTitle } } : {}),
+      },
+      orderBy: { playedAt: 'desc' },
+      include: {
+        tournament: { select: { id: true, name: true, gameTitle: true } },
+        winner: { select: { id: true, name: true } },
+        loser: { select: { id: true, name: true } },
+        playerStats: {
+          orderBy: { kills: 'desc' },
+          include: { user: { select: { id: true, displayName: true } } },
+        },
+      },
+    });
+
+    const roundIndex = await this.buildRoundIndex(matches);
+
+    return matches.map((match) => {
+      const won = match.winnerId === id;
+      const opponent = won ? match.loser : match.winner;
+
+      return {
+        id: match.id,
+        playedAt: match.playedAt.toISOString(),
+        tournamentId: match.tournamentId,
+        tournamentName: match.tournament?.name ?? null,
+        gameTitle: match.tournament?.gameTitle ?? null,
+        round: match.round,
+        bracketSide: match.bracketSide,
+        roundLabel: this.roundLabel(match, roundIndex),
+        result: won ? 'WIN' : 'LOSS',
+        opponent: opponent ? { id: opponent.id, name: opponent.name } : null,
+        playerStats: match.playerStats.map((stat) => ({
+          universityId: stat.universityId,
+          userId: stat.userId,
+          name: stat.summonerName,
+          displayName: stat.user?.displayName ?? null,
+          kills: stat.kills,
+          deaths: stat.deaths,
+          assists: stat.assists,
+          win: stat.win,
+        })),
+      };
+    });
+  }
+
+  // A round's name depends on how far it sits from the end of its own bracket,
+  // so the sibling rounds of each tournament have to be known before any one
+  // match can be labelled.
+  private async buildRoundIndex(matches: { tournamentId: string | null }[]) {
+    const tournamentIds = [
+      ...new Set(
+        matches
+          .map((match) => match.tournamentId)
+          .filter((tournamentId): tournamentId is string => !!tournamentId),
+      ),
+    ];
+
+    const index = new Map<string, number[]>();
+    if (tournamentIds.length === 0) {
+      return index;
+    }
+
+    const siblings = await this.prisma.match.findMany({
+      where: { tournamentId: { in: tournamentIds } },
+      select: { tournamentId: true, round: true, bracketSide: true },
+    });
+
+    for (const sibling of siblings) {
+      const key = `${sibling.tournamentId}:${sibling.bracketSide ?? ''}`;
+      const rounds = index.get(key) ?? [];
+      if (!rounds.includes(sibling.round)) {
+        rounds.push(sibling.round);
+      }
+      index.set(key, rounds);
+    }
+
+    for (const rounds of index.values()) {
+      rounds.sort((a, b) => a - b);
+    }
+
+    return index;
+  }
+
+  // Mirrors the bracket view's naming so a history row reads the same as the
+  // bracket it came from.
+  private roundLabel(
+    match: {
+      tournamentId: string | null;
+      round: number;
+      bracketSide: BracketSide | null;
+    },
+    index: Map<string, number[]>,
+  ): string {
+    if (match.bracketSide === BracketSide.GRAND_FINAL) return 'GRAND FINALS';
+    if (match.round === 0) return 'GROUP STAGE';
+
+    const rounds = index.get(
+      `${match.tournamentId}:${match.bracketSide ?? ''}`,
+    ) ?? [match.round];
+    const positionFromEnd = rounds.length - 1 - rounds.indexOf(match.round);
+    const prefix = match.bracketSide === BracketSide.LOSERS ? 'LOSERS ' : '';
+
+    if (positionFromEnd === 0) {
+      if (match.bracketSide === BracketSide.LOSERS) return 'LOSERS FINAL';
+      if (match.bracketSide === BracketSide.WINNERS) return 'WINNERS FINAL';
+      return 'GRAND FINALS';
+    }
+    if (positionFromEnd === 1) return `${prefix}SEMIFINALS`;
+    if (positionFromEnd === 2 && match.bracketSide !== BracketSide.LOSERS) {
+      return `${prefix}QUARTERFINALS`;
+    }
+    return `${prefix}ROUND ${match.round}`;
   }
 
   async create(createUniversityDto: CreateUniversityDto) {

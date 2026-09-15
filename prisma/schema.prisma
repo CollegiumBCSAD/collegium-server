@@ -228,6 +228,11 @@ model Match {
   // round 1+ = single-elim rounds, playoff rounds, or double-elim WB/LB rounds.
   round        Int          @default(1)
   bracketSide  BracketSide?
+  // Position of this match within its round, left to right (0-based). The
+  // bracket tree is positional: slot N of round R feeds slot floor(N/2) of
+  // round R+1, so advancement fills a pre-created match instead of inventing
+  // a new one. Null on matches created before positional brackets existed.
+  slot         Int?
 }
 
 // Only set for Double Elimination matches. Null for single-elim, round-robin,

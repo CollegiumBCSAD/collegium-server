@@ -51,7 +51,7 @@ const mockPrismaService = {
     update: jest.fn(),
     delete: jest.fn(),
   },
-  $transaction: jest.fn(),
+  $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(mockPrismaService)),
 };
 
 const mockNotificationsService = {
@@ -494,16 +494,85 @@ describe('TournamentsService', () => {
 
       const firstCall = mockPrismaService.match.createMany.mock.calls[0] as [
         {
-          data: Array<{ round: number; isVerified: boolean; loserId?: string }>;
+          data: Array<{
+            round: number;
+            slot: number;
+            isVerified: boolean;
+            winnerId?: string;
+            loserId?: string;
+          }>;
         },
       ];
       const { data } = firstCall[0];
-      // 3 teams -> pad to 4: one pre-verified bye + one real round-1 match.
-      expect(data).toHaveLength(2);
-      const byes = data.filter((m) => m.isVerified);
+      // 3 teams -> pad to 4: one pre-verified bye + one real round-1 match,
+      // plus the round-2 final created up front as an empty placeholder.
+      const round1 = data.filter((m) => m.round === 1);
+      expect(round1).toHaveLength(2);
+      const byes = round1.filter((m) => m.isVerified);
       expect(byes).toHaveLength(1);
       expect(byes[0].loserId).toBeUndefined();
-      expect(data.every((m) => m.round === 1)).toBe(true);
+
+      const round2 = data.filter((m) => m.round === 2);
+      expect(round2).toHaveLength(1);
+      expect(round2[0].winnerId).toBeUndefined();
+      expect(round2[0].loserId).toBeUndefined();
+      expect(round2[0].slot).toBe(0);
+    });
+
+    it('creates the full tree up front for an 8-team single-elim field', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          gameTitle: GameTitle.VALORANT,
+          universities: Array.from({ length: 8 }, (_, i) => ({
+            id: `uni-${i + 1}`,
+          })),
+        })
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          matches: [],
+          universities: [],
+        });
+      mockPrismaService.team.findMany.mockResolvedValue([]);
+      mockPrismaService.match.createMany.mockResolvedValue({ count: 7 });
+      mockPrismaService.tournament.update.mockResolvedValue({});
+
+      await service.generateBracket(tournamentId);
+
+      const firstCall = mockPrismaService.match.createMany.mock.calls[0] as [
+        {
+          data: Array<{
+            round: number;
+            slot: number;
+            title: GameTitle;
+            winnerId?: string;
+          }>;
+        },
+      ];
+      const { data } = firstCall[0];
+
+      // 4 quarterfinals + 2 semifinals + 1 final, all at once.
+      expect(data).toHaveLength(7);
+      expect(data.filter((m) => m.round === 1)).toHaveLength(4);
+      expect(data.filter((m) => m.round === 2)).toHaveLength(2);
+      expect(data.filter((m) => m.round === 3)).toHaveLength(1);
+
+      // Round 1 is fully drawn, later rounds are empty TBD slots.
+      expect(
+        data.filter((m) => m.round === 1).every((m) => !!m.winnerId),
+      ).toBe(true);
+      expect(data.filter((m) => m.round > 1).every((m) => !m.winnerId)).toBe(
+        true,
+      );
+
+      // Slots number left to right within each round.
+      expect(data.filter((m) => m.round === 1).map((m) => m.slot)).toEqual([
+        0, 1, 2, 3,
+      ]);
+
+      // Matches carry the tournament's own game, not a hardcoded LOL.
+      expect(data.every((m) => m.title === GameTitle.VALORANT)).toBe(true);
     });
 
     it('should throw BadRequestException if tournament is not UPCOMING', async () => {
@@ -818,6 +887,31 @@ describe('TournamentsService', () => {
         data: { winnerId: 'uni-a', loserId: 'uni-b', isVerified: true },
       });
       expect(result.isVerified).toBe(true);
+    });
+
+    it('rolls the isVerified claim back when the stat insert fails, so the match stays closeable', async () => {
+      mockPrismaService.match.findFirst.mockResolvedValue({
+        id: matchId,
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: 'uni-b',
+        title: GameTitle.LOL,
+      });
+      mockPrismaService.match.updateMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.playerStat.createMany.mockRejectedValue(
+        new Error('stat insert blew up'),
+      );
+
+      // A real $transaction rolls the claim back on a throw. The mock runs the
+      // callback inline, so the guarantee under test is that the claim and the
+      // insert are inside the same transaction callback at all.
+      await expect(
+        service.closeMatch(tournamentId, matchId, closeDto),
+      ).rejects.toThrow('stat insert blew up');
+
+      expect(mockPrismaService.$transaction).toHaveBeenCalled();
+      expect(mockPrismaService.match.update).not.toHaveBeenCalled();
     });
 
     it('writes the flipped winner/loser when the organizer picks the other team', async () => {

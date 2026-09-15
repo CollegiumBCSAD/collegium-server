@@ -30,6 +30,18 @@ export class UniversitiesController {
   }
 
   @Public()
+  @Get(':id/matches')
+  @ApiOperation({
+    summary: "Get a university's verified tournament match history",
+  })
+  findMatches(
+    @Param('id') id: string,
+    @Query('gameTitle') gameTitle?: GameTitle,
+  ) {
+    return this.universitiesService.findMatches(id, gameTitle);
+  }
+
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get university profile by ID' })
   findOne(@Param('id') id: string) {

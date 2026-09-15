@@ -224,12 +224,31 @@ export class TournamentsController {
     );
   }
 
-  // POST /tournaments/:id/bracket — Admin, Organizer, or Athlete generates the bracket
+  // POST /tournaments/:id/bracket — Admin, Organizer, or Athlete generates the
+  // bracket. Pass randomize: true to draw round 1 at random instead of seeding
+  // it by rating.
   @Post(':id/bracket')
   @Roles(Role.ADMIN, Role.ORGANIZER, Role.ATHLETE)
   @ApiOperation({ summary: 'Generate the tournament bracket' })
-  generateBracket(@Param('id') tournamentId: string) {
-    return this.tournamentsService.generateBracket(tournamentId);
+  generateBracket(
+    @Param('id') tournamentId: string,
+    @Body() body: { randomize?: boolean } = {},
+  ) {
+    return this.tournamentsService.generateBracket(tournamentId, {
+      randomize: body?.randomize === true,
+    });
+  }
+
+  // POST /tournaments/:id/bracket/randomize — Admin or the owning organizer
+  // redraws round 1. Rejected once a round 1 result has been reported.
+  @Post(':id/bracket/randomize')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Randomize the round 1 bracket draw' })
+  randomizeBracket(
+    @Param('id') tournamentId: string,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.randomizeBracket(tournamentId, req.user);
   }
 
   // GET /tournaments/:id/bracket — Anyone can view the bracket
