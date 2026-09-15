@@ -441,7 +441,10 @@ export class AuthService {
     let originalPublicId = user.avatarOriginalPublicId;
 
     if (originalFile && originalFile.buffer) {
-      if (user.avatarOriginalPublicId && user.avatarOriginalPublicId !== user.avatarPublicId) {
+      if (
+        user.avatarOriginalPublicId &&
+        user.avatarOriginalPublicId !== user.avatarPublicId
+      ) {
         try {
           await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
         } catch (err) {
@@ -504,7 +507,10 @@ export class AuthService {
       }
     }
 
-    if (user.avatarOriginalPublicId && user.avatarOriginalPublicId !== user.avatarPublicId) {
+    if (
+      user.avatarOriginalPublicId &&
+      user.avatarOriginalPublicId !== user.avatarPublicId
+    ) {
       try {
         await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
       } catch (err) {

@@ -663,7 +663,9 @@ describe('AuthService', () => {
 
       const result = await service.uploadAvatar('user-1', fakeFile);
 
-      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith('old-avatar-id');
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'old-avatar-id',
+      );
       expect(mockCloudinaryService.upload).toHaveBeenCalledWith(
         fakeFile.buffer,
         'collegium/avatars',
@@ -673,7 +675,8 @@ describe('AuthService', () => {
         data: {
           avatar: 'https://res.cloudinary.com/collegium/avatars/new.png',
           avatarPublicId: 'new-avatar-id',
-          avatarOriginal: 'https://res.cloudinary.com/collegium/avatars/new.png',
+          avatarOriginal:
+            'https://res.cloudinary.com/collegium/avatars/new.png',
           avatarOriginalPublicId: 'new-avatar-id',
           avatarZoom: 1,
           avatarOffsetX: 0,
@@ -698,7 +701,10 @@ describe('AuthService', () => {
     it('throws BadRequestException if no file is provided', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-1' });
       await expect(
-        service.uploadAvatar('user-1', undefined as unknown as Express.Multer.File),
+        service.uploadAvatar(
+          'user-1',
+          undefined as unknown as Express.Multer.File,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -750,7 +756,9 @@ describe('AuthService', () => {
         '/avatars/presets/preset-1.svg',
       );
 
-      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith('old-custom-id');
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'old-custom-id',
+      );
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: {
