@@ -317,6 +317,7 @@ model PlayerStat {
   teamId                      Int?
   vcsScore                    Float?
   dataSource                  DataSource          @default(API)
+  extraStats                  Json?
   createdAt                   DateTime            @default(now())
   valorantStat                ValorantPlayerStat?
 }
