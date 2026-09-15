@@ -105,8 +105,14 @@ model User {
   status         AccountStatus  @default(PENDING)
   emailVerified  Boolean        @default(false)
   displayName    String
-  avatar         String?
-  avatarPublicId String?
+  avatar                 String?
+  avatarPublicId         String?
+  avatarOriginal         String?
+  avatarOriginalPublicId String?
+  avatarZoom             Float?         @default(1.0)
+  avatarOffsetX          Float?         @default(0)
+  avatarOffsetY          Float?         @default(0)
+  avatarRotation         Float?         @default(0)
   universityId   String
   university     University     @relation(fields: [universityId], references: [id])
   captainTeams   Team[]         @relation("TeamCaptain")

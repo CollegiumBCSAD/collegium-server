@@ -14,6 +14,7 @@ import {
   UnauthorizedException,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,7 +23,10 @@ import {
   ApiCookieAuth,
   ApiConsumes,
 } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileInterceptor,
+  FileFieldsInterceptor,
+} from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type * as express from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -233,13 +237,32 @@ export class AuthController {
 
   @Post('me/avatar')
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor('avatar', IMAGE_UPLOAD_OPTIONS))
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'avatar', maxCount: 1 },
+        { name: 'original', maxCount: 1 },
+      ],
+      IMAGE_UPLOAD_OPTIONS,
+    ),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Upload and update user profile avatar' })
   async uploadAvatar(
     @Req() req: express.Request,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles()
+    files: {
+      avatar?: Express.Multer.File[];
+      original?: Express.Multer.File[];
+    },
+    @Body()
+    body?: {
+      zoom?: string | number;
+      offsetX?: string | number;
+      offsetY?: string | number;
+      rotation?: string | number;
+    },
   ) {
     const reqWithUser = req as unknown as {
       user?: { id?: string; sub?: string };
@@ -249,7 +272,24 @@ export class AuthController {
     if (!userId || typeof userId !== 'string') {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.authService.uploadAvatar(userId, file);
+    const avatarFile = files?.avatar?.[0];
+    const originalFile = files?.original?.[0];
+
+    const transforms = body
+      ? {
+          zoom: body.zoom !== undefined ? Number(body.zoom) : undefined,
+          offsetX: body.offsetX !== undefined ? Number(body.offsetX) : undefined,
+          offsetY: body.offsetY !== undefined ? Number(body.offsetY) : undefined,
+          rotation: body.rotation !== undefined ? Number(body.rotation) : undefined,
+        }
+      : undefined;
+
+    return this.authService.uploadAvatar(
+      userId,
+      avatarFile,
+      originalFile,
+      transforms,
+    );
   }
 
   @Delete('me/avatar')

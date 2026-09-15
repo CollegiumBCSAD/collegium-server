@@ -351,6 +351,11 @@ export class AuthService {
         email: true,
         displayName: true,
         avatar: true,
+        avatarOriginal: true,
+        avatarZoom: true,
+        avatarOffsetX: true,
+        avatarOffsetY: true,
+        avatarRotation: true,
         role: true,
         status: true,
         universityId: true,
@@ -395,17 +400,28 @@ export class AuthService {
     return user;
   }
 
-  async uploadAvatar(userId: string, file: Express.Multer.File) {
+  async uploadAvatar(
+    userId: string,
+    file?: Express.Multer.File,
+    originalFile?: Express.Multer.File,
+    transforms?: {
+      zoom?: number;
+      offsetX?: number;
+      offsetY?: number;
+      rotation?: number;
+    },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    if (!file || !file.buffer) {
+    const primaryFile = file || originalFile;
+    if (!primaryFile || !primaryFile.buffer) {
       throw new BadRequestException('No image file provided');
     }
 
-    // Clean up previous Cloudinary asset if one was assigned
+    // Clean up previous cropped avatar Cloudinary asset if one was assigned
     if (user.avatarPublicId) {
       try {
         await this.cloudinaryService.destroy(user.avatarPublicId);
@@ -417,19 +433,55 @@ export class AuthService {
     }
 
     const uploadResult = await this.cloudinaryService.upload(
-      file.buffer,
+      primaryFile.buffer,
       'collegium/avatars',
     );
+
+    let originalUrl = user.avatarOriginal;
+    let originalPublicId = user.avatarOriginalPublicId;
+
+    if (originalFile && originalFile.buffer) {
+      if (user.avatarOriginalPublicId && user.avatarOriginalPublicId !== user.avatarPublicId) {
+        try {
+          await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
+        } catch (err) {
+          this.logger.warn(
+            `Failed to delete old original avatar ${user.avatarOriginalPublicId}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      const origResult = await this.cloudinaryService.upload(
+        originalFile.buffer,
+        'collegium/avatars/originals',
+      );
+      originalUrl = origResult.url;
+      originalPublicId = origResult.publicId;
+    } else if (!user.avatarOriginal) {
+      originalUrl = uploadResult.url;
+      originalPublicId = uploadResult.publicId;
+    }
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
         avatar: uploadResult.url,
         avatarPublicId: uploadResult.publicId,
+        avatarOriginal: originalUrl,
+        avatarOriginalPublicId: originalPublicId,
+        avatarZoom: transforms?.zoom ?? user.avatarZoom ?? 1.0,
+        avatarOffsetX: transforms?.offsetX ?? user.avatarOffsetX ?? 0,
+        avatarOffsetY: transforms?.offsetY ?? user.avatarOffsetY ?? 0,
+        avatarRotation: transforms?.rotation ?? user.avatarRotation ?? 0,
       },
       select: {
         id: true,
         avatar: true,
+        avatarOriginal: true,
+        avatarZoom: true,
+        avatarOffsetX: true,
+        avatarOffsetY: true,
+        avatarRotation: true,
       },
     });
 
@@ -452,11 +504,27 @@ export class AuthService {
       }
     }
 
+    if (user.avatarOriginalPublicId && user.avatarOriginalPublicId !== user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete original avatar ${user.avatarOriginalPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         avatar: null,
         avatarPublicId: null,
+        avatarOriginal: null,
+        avatarOriginalPublicId: null,
+        avatarZoom: 1.0,
+        avatarOffsetX: 0,
+        avatarOffsetY: 0,
+        avatarRotation: 0,
       },
     });
 
