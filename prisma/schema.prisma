@@ -105,6 +105,8 @@ model User {
   status         AccountStatus  @default(PENDING)
   emailVerified  Boolean        @default(false)
   displayName    String
+  avatar         String?
+  avatarPublicId String?
   universityId   String
   university     University     @relation(fields: [universityId], references: [id])
   captainTeams   Team[]         @relation("TeamCaptain")
