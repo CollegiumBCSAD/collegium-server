@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   Req,
   Res,
@@ -11,13 +12,18 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiCookieAuth,
+  ApiConsumes,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import type * as express from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -31,6 +37,23 @@ import { RolesGuard } from './guards/roles.guard';
 import { Public } from './decorators/public.decorator';
 import { Roles } from './decorators/roles.decorator';
 import { AccountStatus, Role } from '@prisma/client';
+
+const IMAGE_UPLOAD_OPTIONS = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    callback: (error: Error | null, accept: boolean) => void,
+  ) => {
+    callback(
+      file.mimetype.startsWith('image/')
+        ? null
+        : new Error('Only image files are allowed'),
+      file.mimetype.startsWith('image/'),
+    );
+  },
+};
 
 const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
@@ -206,6 +229,62 @@ export class AuthController {
       throw new UnauthorizedException('User not authenticated');
     }
     return this.authService.getMe(userId);
+  }
+
+  @Post('me/avatar')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('avatar', IMAGE_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload and update user profile avatar' })
+  async uploadAvatar(
+    @Req() req: express.Request,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const reqWithUser = req as unknown as {
+      user?: { id?: string; sub?: string };
+    };
+    const user = reqWithUser.user;
+    const userId = user?.id || user?.sub;
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.authService.uploadAvatar(userId, file);
+  }
+
+  @Delete('me/avatar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove user profile avatar' })
+  async removeAvatar(@Req() req: express.Request) {
+    const reqWithUser = req as unknown as {
+      user?: { id?: string; sub?: string };
+    };
+    const user = reqWithUser.user;
+    const userId = user?.id || user?.sub;
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.authService.removeAvatar(userId);
+  }
+
+  @Patch('me/avatar-preset')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Set user profile avatar to a preset' })
+  async setPresetAvatar(
+    @Req() req: express.Request,
+    @Body('avatarUrl') avatarUrl: string,
+  ) {
+    const reqWithUser = req as unknown as {
+      user?: { id?: string; sub?: string };
+    };
+    const user = reqWithUser.user;
+    const userId = user?.id || user?.sub;
+    if (!userId || typeof userId !== 'string') {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return this.authService.setPresetAvatar(userId, avatarUrl);
   }
 
   @Patch('me/game-handles')

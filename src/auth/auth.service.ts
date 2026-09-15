@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateGameHandleDto } from './dto/update-game-handle.dto';
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   private async resolveUniversity(domain: string) {
@@ -348,6 +350,7 @@ export class AuthService {
         id: true,
         email: true,
         displayName: true,
+        avatar: true,
         role: true,
         status: true,
         universityId: true,
@@ -390,6 +393,109 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async uploadAvatar(userId: string, file: Express.Multer.File) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!file || !file.buffer) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    // Clean up previous Cloudinary asset if one was assigned
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete old avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const uploadResult = await this.cloudinaryService.upload(
+      file.buffer,
+      'collegium/avatars',
+    );
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: uploadResult.url,
+        avatarPublicId: uploadResult.publicId,
+      },
+      select: {
+        id: true,
+        avatar: true,
+      },
+    });
+
+    return updated;
+  }
+
+  async removeAvatar(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: null,
+        avatarPublicId: null,
+      },
+    });
+
+    return { message: 'Avatar removed successfully' };
+  }
+
+  async setPresetAvatar(userId: string, avatarUrl: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!avatarUrl || typeof avatarUrl !== 'string') {
+      throw new BadRequestException('Invalid avatar URL');
+    }
+
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete old avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: avatarUrl.trim(),
+        avatarPublicId: null,
+      },
+      select: {
+        id: true,
+        avatar: true,
+      },
+    });
+
+    return updated;
   }
 
   async updateGameHandle(userId: string, dto: UpdateGameHandleDto) {
@@ -443,6 +549,7 @@ export class AuthService {
         id: true,
         email: true,
         displayName: true,
+        avatar: true,
         role: true,
         status: true,
         createdAt: true,
