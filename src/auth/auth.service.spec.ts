@@ -673,8 +673,22 @@ describe('AuthService', () => {
         data: {
           avatar: 'https://res.cloudinary.com/collegium/avatars/new.png',
           avatarPublicId: 'new-avatar-id',
+          avatarOriginal: 'https://res.cloudinary.com/collegium/avatars/new.png',
+          avatarOriginalPublicId: 'new-avatar-id',
+          avatarZoom: 1,
+          avatarOffsetX: 0,
+          avatarOffsetY: 0,
+          avatarRotation: 0,
         },
-        select: { id: true, avatar: true },
+        select: {
+          id: true,
+          avatar: true,
+          avatarOriginal: true,
+          avatarZoom: true,
+          avatarOffsetX: true,
+          avatarOffsetY: true,
+          avatarRotation: true,
+        },
       });
       expect(result.avatar).toBe(
         'https://res.cloudinary.com/collegium/avatars/new.png',
@@ -694,6 +708,7 @@ describe('AuthService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue({
         id: 'user-1',
         avatarPublicId: 'existing-id',
+        avatarOriginalPublicId: 'existing-id',
       });
       mockCloudinaryService.destroy.mockResolvedValue({});
       mockPrismaService.user.update.mockResolvedValue({ id: 'user-1' });
@@ -703,7 +718,16 @@ describe('AuthService', () => {
       expect(mockCloudinaryService.destroy).toHaveBeenCalledWith('existing-id');
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { avatar: null, avatarPublicId: null },
+        data: {
+          avatar: null,
+          avatarPublicId: null,
+          avatarOriginal: null,
+          avatarOriginalPublicId: null,
+          avatarZoom: 1,
+          avatarOffsetX: 0,
+          avatarOffsetY: 0,
+          avatarRotation: 0,
+        },
       });
       expect(result.message).toBe('Avatar removed successfully');
     });
