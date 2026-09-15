@@ -262,7 +262,11 @@ export class ScrimsService {
       refId: `${updated.id}:${opponentTeam.id}`,
     });
 
-    return updated;
+    return {
+      ...updated,
+      notes: baseNotes,
+      pendingRequests: currentReqs,
+    };
   }
 
   async confirmScrim(scrimId: string, selectedOpponentId?: string) {

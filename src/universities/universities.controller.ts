@@ -13,6 +13,7 @@ import { UniversitiesService } from './universities.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { UpdateUniversityDto } from './dto/update-university.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { Role, GameTitle } from '@prisma/client';
 
 @ApiTags('Universities')
@@ -21,12 +22,14 @@ import { Role, GameTitle } from '@prisma/client';
 export class UniversitiesController {
   constructor(private readonly universitiesService: UniversitiesService) {}
 
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Get all universities (Leaderboard)' })
   findAll(@Query('gameTitle') gameTitle?: GameTitle) {
     return this.universitiesService.findAll(gameTitle);
   }
 
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get university profile by ID' })
   findOne(@Param('id') id: string) {

@@ -11,11 +11,8 @@ import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
-import { GlickoService } from '../src/universities/glicko.service';
-
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
-const glicko = new GlickoService();
 
 const SEED_PASSWORD = 'Collegium2026!';
 
@@ -30,11 +27,18 @@ const UNIVERSITIES = [
   { name: 'Adamson University', domain: 'adamson.edu.ph', short: 'Adamson' },
 ];
 
-const GAMES: Array<{ title: GameTitle; label: string; tag: string; roles: string[] }> = [
-  { title: GameTitle.VALORANT, label: 'Valorant', tag: 'VALO', roles: ['Duelist', 'Controller', 'Sentinel', 'Initiator', 'Flex'] },
-  { title: GameTitle.LOL, label: 'League of Legends', tag: 'LOL', roles: ['Top', 'Jungle', 'Mid', 'ADC', 'Support'] },
-  { title: GameTitle.MLBB, label: 'Mobile Legends', tag: 'ML', roles: ['Gold', 'EXP', 'Mid', 'Jungle', 'Roam'] },
-  { title: GameTitle.CODM, label: 'Call of Duty Mobile', tag: 'CODM', roles: ['Slayer', 'Objective', 'Anchor', 'Flex', 'Support'] },
+const GAMES: Array<{
+  title: GameTitle;
+  label: string;
+  tag: string;
+  roles: string[];
+  minRosterSize: number;
+  maxRosterSize: number;
+}> = [
+  { title: GameTitle.VALORANT, label: 'Valorant', tag: 'VALO', roles: ['Duelist', 'Controller', 'Sentinel', 'Initiator', 'Flex'], minRosterSize: 5, maxRosterSize: 6 },
+  { title: GameTitle.LOL, label: 'League of Legends', tag: 'LOL', roles: ['Top', 'Jungle', 'Mid', 'ADC', 'Support'], minRosterSize: 5, maxRosterSize: 7 },
+  { title: GameTitle.MLBB, label: 'Mobile Legends', tag: 'ML', roles: ['Gold', 'EXP', 'Mid', 'Jungle', 'Roam'], minRosterSize: 5, maxRosterSize: 6 },
+  { title: GameTitle.CODM, label: 'Call of Duty Mobile', tag: 'CODM', roles: ['Slayer', 'Objective', 'Anchor', 'Flex', 'Support'], minRosterSize: 5, maxRosterSize: 6 },
 ];
 
 const COMPLETED_BRACKET: Array<{ id: string; round: number; winner: string; loser: string; playedAt: string }> = [
@@ -57,10 +61,10 @@ async function wipe() {
   await prisma.userGameHandle.deleteMany();
   await prisma.tournamentApplication.deleteMany();
   await prisma.refreshToken.deleteMany();
+  await prisma.ratingHistory.deleteMany();
   await prisma.teamMember.deleteMany();
   await prisma.scrim.deleteMany();
   await prisma.match.deleteMany();
-  await prisma.universityGameRating.deleteMany();
   await prisma.team.deleteMany();
   await prisma.tournament.deleteMany();
   await prisma.user.deleteMany();
@@ -121,6 +125,13 @@ async function main() {
           universityId: university.id,
           captainId: captain.id,
           inviteCode: inviteCode(),
+          glicko2_rating: 1500,
+          glicko2_rd: 350,
+          glicko2_sigma: 0.06,
+          rd_anchor: 350,
+          last_rated_at: null,
+          min_roster_size: game.minRosterSize,
+          max_roster_size: game.maxRosterSize,
           members: {
             create: rosterIds.map((userId, i) => ({
               userId,
@@ -187,11 +198,6 @@ async function main() {
     },
   });
 
-  const ratings = new Map<string, { rating: number; rd: number; sigma: number; wins: number; losses: number }>();
-  for (const uni of UNIVERSITIES) {
-    ratings.set(uni.short, { rating: 1500, rd: 350, sigma: 0.06, wins: 0, losses: 0 });
-  }
-
   for (const [i, game] of COMPLETED_BRACKET.entries()) {
     await prisma.match.create({
       data: {
@@ -207,30 +213,6 @@ async function main() {
         winnerId: universityByShort.get(game.winner)!,
         loserId: universityByShort.get(game.loser)!,
         tournamentId: completed.id,
-      },
-    });
-
-    const winnerState = ratings.get(game.winner)!;
-    const loserState = ratings.get(game.loser)!;
-    const result = glicko.calculateMatch(
-      { rating: winnerState.rating, rd: winnerState.rd, sigma: winnerState.sigma },
-      { rating: loserState.rating, rd: loserState.rd, sigma: loserState.sigma },
-    );
-    ratings.set(game.winner, { ...result.winner, wins: winnerState.wins + 1, losses: winnerState.losses });
-    ratings.set(game.loser, { ...result.loser, wins: loserState.wins, losses: loserState.losses + 1 });
-  }
-
-  for (const uni of UNIVERSITIES) {
-    const final = ratings.get(uni.short)!;
-    await prisma.universityGameRating.create({
-      data: {
-        universityId: universityByShort.get(uni.short)!,
-        gameTitle: GameTitle.VALORANT,
-        glicko2_rating: final.rating,
-        glicko2_rd: final.rd,
-        glicko2_sigma: final.sigma,
-        wins: final.wins,
-        losses: final.losses,
       },
     });
   }
