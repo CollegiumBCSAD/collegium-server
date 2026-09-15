@@ -6,11 +6,16 @@ import {
   Role,
   TournamentStatus,
   TournamentApplicationStatus,
+  NotificationCategory,
+  NotificationType,
+  ScrimStatus,
 } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
+import { RankingService } from '../src/ranking/ranking.service';
+import type { PrismaService } from '../src/prisma/prisma.service';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
@@ -56,6 +61,8 @@ function inviteCode(): string {
 }
 
 async function wipe() {
+  await prisma.notification.deleteMany();
+  await prisma.scrimChatMessage.deleteMany();
   await prisma.valorantPlayerStat.deleteMany();
   await prisma.playerStat.deleteMany();
   await prisma.userGameHandle.deleteMany();
@@ -217,10 +224,31 @@ async function main() {
     });
   }
 
+  // Run the real Glicko-2 batch closure (same pipeline the app calls at tournament
+  // close) against the completed invitational, so the leaderboard and each team's
+  // RatingHistory show authentic post-tournament numbers instead of the untouched
+  // 1500/350/0.06 default. PrismaService is a thin PrismaClient subclass (see
+  // src/prisma/prisma.service.ts) — safe to hand this raw client to it directly.
+  const ranking = new RankingService(prisma as unknown as PrismaService);
+  const closure = await ranking.closeTournamentRatingPeriod(completed.id);
+
+  // Applications that are PENDING or REJECTED (rather than APPROVED) so the
+  // organizer has something to demo in the review queue live. Left out of the
+  // round-1 pairing below since they haven't been approved into the bracket yet.
+  const VALORANT_PENDING = ['NU'];
+  const VALORANT_REJECTED = ['Mapua'];
+
   let ongoingTournaments = 0;
   let ongoingMatches = 0;
 
   for (const game of GAMES) {
+    const isValorant = game.title === GameTitle.VALORANT;
+    const pendingShorts = isValorant ? VALORANT_PENDING : [];
+    const rejectedShorts = isValorant ? VALORANT_REJECTED : [];
+    const approvedUnis = UNIVERSITIES.filter(
+      (u) => !pendingShorts.includes(u.short) && !rejectedShorts.includes(u.short),
+    );
+
     const tournament = await prisma.tournament.create({
       data: {
         name: `${game.label} Collegiate Series — Live`,
@@ -231,13 +259,19 @@ async function main() {
         status: TournamentStatus.ONGOING,
         organizerId: organizer.id,
         universities: {
-          connect: UNIVERSITIES.map((uni) => ({ id: universityByShort.get(uni.short)! })),
+          connect: approvedUnis.map((uni) => ({ id: universityByShort.get(uni.short)! })),
         },
       },
     });
     ongoingTournaments++;
 
     for (const uni of UNIVERSITIES) {
+      const status = pendingShorts.includes(uni.short)
+        ? TournamentApplicationStatus.PENDING
+        : rejectedShorts.includes(uni.short)
+          ? TournamentApplicationStatus.REJECTED
+          : TournamentApplicationStatus.APPROVED;
+
       await prisma.tournamentApplication.create({
         data: {
           tournamentId: tournament.id,
@@ -246,12 +280,12 @@ async function main() {
           applicantName: `${uni.short} Team Captain`,
           teamId: teamByShortGame.get(`${uni.short}:${game.title}`)!,
           teamName: `${uni.short} ${game.label}`,
-          status: TournamentApplicationStatus.APPROVED,
+          status,
         },
       });
     }
 
-    for (let i = 0; i < UNIVERSITIES.length; i += 2) {
+    for (let i = 0; i < approvedUnis.length; i += 2) {
       await prisma.match.create({
         data: {
           title: game.title,
@@ -262,20 +296,175 @@ async function main() {
           platformId: 'PH',
           isVerified: false,
           round: 1,
-          winnerId: universityByShort.get(UNIVERSITIES[i].short)!,
-          loserId: universityByShort.get(UNIVERSITIES[i + 1].short)!,
+          winnerId: universityByShort.get(approvedUnis[i].short)!,
+          loserId: universityByShort.get(approvedUnis[i + 1].short)!,
         },
       });
       ongoingMatches++;
     }
   }
 
+  // Second organizer with a tournament still awaiting Admin approval — demos the
+  // PENDING_APPROVAL -> UPCOMING admin review flow (GET/POST /admin/tournaments).
+  const organizer2 = await prisma.user.create({
+    data: {
+      email: 'organizer2@umak.edu.ph',
+      password: hashedPassword,
+      displayName: 'Manila Esports League Host',
+      role: Role.ORGANIZER,
+      universityId: universityByShort.get('UMak')!,
+      status: 'ACTIVE',
+      emailVerified: true,
+    },
+  });
+
+  await prisma.tournament.create({
+    data: {
+      name: 'Manila Community Clash — Mobile Legends',
+      gameTitle: GameTitle.MLBB,
+      bracketFormat: 'Single Elimination',
+      teamQuota: 8,
+      rules: 'Open community bracket, best of 3 up to the final.',
+      status: TournamentStatus.PENDING_APPROVAL,
+      organizerId: organizer2.id,
+    },
+  });
+
+  // A pending roster join request on UMak's Valorant squad — demos the team
+  // captain's accept/decline flow independently of the tournament application flow.
+  const walkIn = await prisma.user.create({
+    data: {
+      email: 'walkin@umak.edu.ph',
+      password: hashedPassword,
+      displayName: 'UMak Walk-in Athlete',
+      role: Role.ATHLETE,
+      universityId: universityByShort.get('UMak')!,
+      status: 'ACTIVE',
+      emailVerified: true,
+    },
+  });
+
+  const umakValoTeamId = teamByShortGame.get(`UMak:${GameTitle.VALORANT}`)!;
+  await prisma.teamMember.create({
+    data: {
+      teamId: umakValoTeamId,
+      userId: walkIn.id,
+      gameHandle: 'UMakWalkIn.VALO',
+      preferredRole: 'Flex',
+      status: 'PENDING',
+    },
+  });
+
+  // Scrims: one open request, one confirmed scrim with war room chat, one
+  // completed scrim, to cover the practice-match flow end to end.
+  const ateneoLolTeamId = teamByShortGame.get(`Ateneo:${GameTitle.LOL}`)!;
+  const dlsuLolTeamId = teamByShortGame.get(`DLSU:${GameTitle.LOL}`)!;
+  const ustCodmTeamId = teamByShortGame.get(`UST:${GameTitle.CODM}`)!;
+  const feuCodmTeamId = teamByShortGame.get(`FEU:${GameTitle.CODM}`)!;
+
+  await prisma.scrim.create({
+    data: {
+      teamId: umakValoTeamId,
+      gameTitle: GameTitle.VALORANT,
+      scheduledAt: new Date('2026-09-20T13:00:00Z'),
+      format: 'Best of 1',
+      rankRange: 'Any',
+      mapPreference: "Organizer's choice",
+      notes: 'Looking for a scrim ahead of the Live series.',
+      status: ScrimStatus.OPEN,
+    },
+  });
+
+  const confirmedScrim = await prisma.scrim.create({
+    data: {
+      teamId: ateneoLolTeamId,
+      opponentId: dlsuLolTeamId,
+      gameTitle: GameTitle.LOL,
+      scheduledAt: new Date('2026-09-18T11:00:00Z'),
+      format: 'Best of 3',
+      status: ScrimStatus.CONFIRMED,
+    },
+  });
+
+  await prisma.scrimChatMessage.createMany({
+    data: [
+      {
+        scrimId: confirmedScrim.id,
+        senderId: captainByShort.get('Ateneo')!,
+        senderName: 'Ateneo Team Captain',
+        teamName: 'Ateneo League of Legends',
+        text: "Confirmed for Friday 7PM, see you on Summoner's Rift.",
+      },
+      {
+        scrimId: confirmedScrim.id,
+        senderId: captainByShort.get('DLSU')!,
+        senderName: 'DLSU Team Captain',
+        teamName: 'DLSU League of Legends',
+        text: "Bet, we'll be there.",
+      },
+    ],
+  });
+
+  await prisma.scrim.create({
+    data: {
+      teamId: ustCodmTeamId,
+      opponentId: feuCodmTeamId,
+      gameTitle: GameTitle.CODM,
+      scheduledAt: new Date('2026-09-05T09:00:00Z'),
+      format: 'Best of 1',
+      status: ScrimStatus.COMPLETED,
+    },
+  });
+
+  // Notifications so the bell/badge already has content without needing a live
+  // trigger during the demo.
+  await prisma.notification.createMany({
+    data: [
+      {
+        userId: captainByShort.get('UMak')!,
+        category: NotificationCategory.TEAM,
+        type: NotificationType.TEAM_JOIN_REQUEST,
+        title: 'New roster join request',
+        message: 'UMak Walk-in Athlete requested to join UMak Valorant.',
+        link: '/dashboard',
+        refId: `${umakValoTeamId}:${walkIn.id}`,
+        read: false,
+      },
+      {
+        userId: captainByShort.get('Ateneo')!,
+        category: NotificationCategory.SCRIM,
+        type: NotificationType.SCRIM_REQUEST_ACCEPTED,
+        title: 'Scrim confirmed',
+        message: 'DLSU League of Legends accepted your scrim request for Sep 18.',
+        link: '/scrims',
+        refId: confirmedScrim.id,
+        read: false,
+      },
+      {
+        userId: captainByShort.get('DLSU')!,
+        category: NotificationCategory.TOURNAMENT,
+        type: NotificationType.TOURNAMENT_APPROVED,
+        title: 'Application approved',
+        message: "Your squad's application to League of Legends Collegiate Series — Live was approved.",
+        link: '/tournaments',
+        read: true,
+      },
+    ],
+  });
+
   const teamCount = UNIVERSITIES.length * GAMES.length;
   console.log(
-    `Seeded ${UNIVERSITIES.length} universities, ${UNIVERSITIES.length * 5 + 2} users, ${teamCount} teams across ${GAMES.length} games.`,
+    `Seeded ${UNIVERSITIES.length} universities, ${UNIVERSITIES.length * 5 + 4} users, ${teamCount} teams across ${GAMES.length} games.`,
   );
   console.log(
-    `Tournaments: 1 completed Valorant invitational + ${ongoingTournaments} organizer-owned ONGOING tournaments (${ongoingMatches} round-1 matches ready to report).`,
+    `Completed invitational: rating period closed, ${closure.teamsUpdated.length} teams rated at event weight ${closure.eventWeight}x (see RatingHistory).`,
+  );
+  console.log(
+    `Ongoing: ${ongoingTournaments} organizer-owned ONGOING tournaments (${ongoingMatches} round-1 matches ready to report), ` +
+      `1 PENDING_APPROVAL tournament awaiting Admin review, Valorant has 1 PENDING + 1 REJECTED application queued for Organizer review.`,
+  );
+  console.log(
+    'Also seeded: 1 pending team join request, 3 scrims (OPEN/CONFIRMED with chat/COMPLETED), 3 notifications.',
   );
   console.log(`All seeded accounts use password: ${SEED_PASSWORD}`);
 }
