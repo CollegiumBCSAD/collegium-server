@@ -345,7 +345,9 @@ export class BracketService {
       for (let m = 0; m < matchCount; m++) {
         // Next match destination is match m >> 1 in round r + 1
         const nextRoundMatches = roundMatches.get(r + 1);
-        const nextMatchId = nextRoundMatches ? nextRoundMatches[Math.floor(m / 2)] : null;
+        const nextMatchId = nextRoundMatches
+          ? nextRoundMatches[Math.floor(m / 2)]
+          : null;
 
         const bestOf =
           bestOfOverrides?.[roundName] ??
@@ -362,7 +364,9 @@ export class BracketService {
             platformId: 'PH',
             round: r,
             roundName,
-            bracketSection: isFinal ? BracketSection.GRAND_FINAL : BracketSection.UPPER,
+            bracketSection: isFinal
+              ? BracketSection.GRAND_FINAL
+              : BracketSection.UPPER,
             matchOrder: m + 1,
             bestOf,
             nextMatchId,
@@ -453,7 +457,8 @@ export class BracketService {
     const lbRoundsCount = 2 * (ubRoundsCount - 1);
 
     // 1. Create Grand Final
-    const gfBo = bestOfOverrides?.['GRAND FINAL'] ?? bestOfOverrides?.['GF'] ?? 5;
+    const gfBo =
+      bestOfOverrides?.['GRAND FINAL'] ?? bestOfOverrides?.['GF'] ?? 5;
     const grandFinal = await tx.match.create({
       data: {
         title: GameTitle.VALORANT,
@@ -537,9 +542,7 @@ export class BracketService {
       const isUbFinal = ubR === ubRoundsCount;
       const roundName = isUbFinal ? 'UPPER BRACKET FINAL' : `UB ROUND ${ubR}`;
       const bestOf =
-        bestOfOverrides?.[roundName] ??
-        bestOfOverrides?.[`UB_R${ubR}`] ??
-        3;
+        bestOfOverrides?.[roundName] ?? bestOfOverrides?.[`UB_R${ubR}`] ?? 3;
 
       const ids: string[] = [];
       for (let m = 0; m < matchCount; m++) {
@@ -567,7 +570,7 @@ export class BracketService {
           const targetLbR = 2 * (ubR - 1);
           const lbTargetMatches = lbMatches.get(targetLbR)!;
           // Cross placement to avoid immediate rematches
-          const targetIdx = (lbTargetMatches.length - 1) - m;
+          const targetIdx = lbTargetMatches.length - 1 - m;
           loserNextMatchId = lbTargetMatches[Math.max(0, targetIdx)];
         }
 

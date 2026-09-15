@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BracketFormat,
@@ -27,22 +31,28 @@ describe('BracketService', () => {
         return Promise.resolve(item);
       }),
       findUnique: jest.fn((args) => {
-        return Promise.resolve(matchStore.find((m) => m.id === args.where.id) || null);
+        return Promise.resolve(
+          matchStore.find((m) => m.id === args.where.id) || null,
+        );
       }),
       findFirst: jest.fn((args) => {
         return Promise.resolve(
           matchStore.find(
             (m) =>
-              (!args.where.tournamentId || m.tournamentId === args.where.tournamentId) &&
-              (!args.where.isBracketReset || m.isBracketReset === args.where.isBracketReset),
+              (!args.where.tournamentId ||
+                m.tournamentId === args.where.tournamentId) &&
+              (!args.where.isBracketReset ||
+                m.isBracketReset === args.where.isBracketReset),
           ) || null,
         );
       }),
       update: jest.fn((args) => {
         const item = matchStore.find((m) => m.id === args.where.id);
         if (item) {
-          if (args.data.team1?.connect?.id) item.team1Id = args.data.team1.connect.id;
-          if (args.data.team2?.connect?.id) item.team2Id = args.data.team2.connect.id;
+          if (args.data.team1?.connect?.id)
+            item.team1Id = args.data.team1.connect.id;
+          if (args.data.team2?.connect?.id)
+            item.team2Id = args.data.team2.connect.id;
           Object.assign(item, args.data);
         }
         return Promise.resolve(item);
@@ -57,7 +67,10 @@ describe('BracketService', () => {
     },
     tournamentRosterMember: {
       create: jest.fn((args) => {
-        const item = { id: `member-${rosterMemberStore.length + 1}`, ...args.data };
+        const item = {
+          id: `member-${rosterMemberStore.length + 1}`,
+          ...args.data,
+        };
         rosterMemberStore.push(item);
         return Promise.resolve(item);
       }),
@@ -81,7 +94,9 @@ describe('BracketService', () => {
 
   const mockPrismaService = {
     tournament: {
-      findUnique: jest.fn((args) => Promise.resolve(tournamentStore[args.where.id] || null)),
+      findUnique: jest.fn((args) =>
+        Promise.resolve(tournamentStore[args.where.id] || null),
+      ),
       update: jest.fn((args) => {
         const t = tournamentStore[args.where.id];
         if (t) Object.assign(t, args.data);
@@ -105,8 +120,10 @@ describe('BracketService', () => {
       update: jest.fn((args) => {
         const item = matchStore.find((m) => m.id === args.where.id);
         if (item) {
-          if (args.data.team1?.connect?.id) item.team1Id = args.data.team1.connect.id;
-          if (args.data.team2?.connect?.id) item.team2Id = args.data.team2.connect.id;
+          if (args.data.team1?.connect?.id)
+            item.team1Id = args.data.team1.connect.id;
+          if (args.data.team2?.connect?.id)
+            item.team2Id = args.data.team2.connect.id;
           Object.assign(item, args.data);
         }
         return Promise.resolve(item);
@@ -276,9 +293,15 @@ describe('BracketService', () => {
     // 8 teams double elim has 14 pre-created matches
     expect(matchStore.length).toBe(14);
 
-    const ubMatches = matchStore.filter((m) => m.bracketSection === BracketSection.UPPER);
-    const lbMatches = matchStore.filter((m) => m.bracketSection === BracketSection.LOWER);
-    const gf = matchStore.find((m) => m.bracketSection === BracketSection.GRAND_FINAL);
+    const ubMatches = matchStore.filter(
+      (m) => m.bracketSection === BracketSection.UPPER,
+    );
+    const lbMatches = matchStore.filter(
+      (m) => m.bracketSection === BracketSection.LOWER,
+    );
+    const gf = matchStore.find(
+      (m) => m.bracketSection === BracketSection.GRAND_FINAL,
+    );
 
     expect(ubMatches.length).toBe(7); // 4 (UB R1) + 2 (UB R2) + 1 (UB Final)
     expect(lbMatches.length).toBe(6); // 2 (LB R1) + 2 (LB R2) + 1 (LB R3) + 1 (LB Final)
@@ -291,7 +314,9 @@ describe('BracketService', () => {
     expect(ubR1[1].loserNextMatchId).toBe(lbR1[0].id);
 
     // Lower bracket final is BO5 per Valorant convention
-    const lbFinal = lbMatches.find((m) => m.roundName === 'LOWER BRACKET FINAL');
+    const lbFinal = lbMatches.find(
+      (m) => m.roundName === 'LOWER BRACKET FINAL',
+    );
     expect(lbFinal.bestOf).toBe(5);
     expect(gf.bestOf).toBe(5);
   });
@@ -336,7 +361,12 @@ describe('BracketService', () => {
     expect(loserMatch.team1Id).toBe('team-2');
 
     // Second confirmation (idempotent no-op)
-    const idempotentResult = await service.advanceMatchResult(tournamentId, 'm-1', 'team-1', 'team-2');
+    const idempotentResult = await service.advanceMatchResult(
+      tournamentId,
+      'm-1',
+      'team-1',
+      'team-2',
+    );
     expect(idempotentResult.winnerTeamId).toBe('team-1');
   });
 
@@ -355,10 +385,18 @@ describe('BracketService', () => {
       isVerified: false,
     };
     matchStore.push(gfMatch);
-    tournamentStore[tournamentId] = { id: tournamentId, status: TournamentStatus.ONGOING };
+    tournamentStore[tournamentId] = {
+      id: tournamentId,
+      status: TournamentStatus.ONGOING,
+    };
 
     // LB winner wins Grand Final!
-    await service.advanceMatchResult(tournamentId, 'm-gf', 'lb-champ', 'ub-champ');
+    await service.advanceMatchResult(
+      tournamentId,
+      'm-gf',
+      'lb-champ',
+      'ub-champ',
+    );
 
     const resetMatch = matchStore.find((m) => m.isBracketReset === true);
     expect(resetMatch).toBeDefined();
@@ -396,7 +434,11 @@ describe('BracketService', () => {
     // Second lock attempt must reject
     tournamentStore[tournamentId].lockedAt = new Date();
     await expect(
-      service.generateBracket(tournamentId, {}, { id: 'org-1', role: Role.ORGANIZER }),
+      service.generateBracket(
+        tournamentId,
+        {},
+        { id: 'org-1', role: Role.ORGANIZER },
+      ),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -418,7 +460,11 @@ describe('BracketService', () => {
     mockPrismaService.team.findMany.mockResolvedValue(teams);
 
     await expect(
-      service.generateBracket(tournamentId, {}, { id: 'org-1', role: Role.ORGANIZER }),
+      service.generateBracket(
+        tournamentId,
+        {},
+        { id: 'org-1', role: Role.ORGANIZER },
+      ),
     ).rejects.toThrow(/War Room does not exist/);
   });
 
@@ -435,12 +481,20 @@ describe('BracketService', () => {
 
     // Different organizer tries to lock
     await expect(
-      service.generateBracket(tournamentId, {}, { id: 'different-org', role: Role.ORGANIZER }),
+      service.generateBracket(
+        tournamentId,
+        {},
+        { id: 'different-org', role: Role.ORGANIZER },
+      ),
     ).rejects.toThrow(ForbiddenException);
 
     // Athlete tries to lock
     await expect(
-      service.generateBracket(tournamentId, {}, { id: 'athlete-1', role: Role.ATHLETE }),
+      service.generateBracket(
+        tournamentId,
+        {},
+        { id: 'athlete-1', role: Role.ATHLETE },
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 });
