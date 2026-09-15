@@ -46,9 +46,11 @@ describe('TournamentsController', () => {
   });
 
   it('should mark getBracket as @Public() for open tournament bracket inspection', () => {
-    const isPublic = reflector.get<boolean>(IS_PUBLIC_KEY, controller.getBracket);
+    const isPublic = reflector.get<boolean>(
+      IS_PUBLIC_KEY,
+      controller.getBracket,
+    );
     expect(isPublic).toBe(true);
   });
   /* eslint-enable @typescript-eslint/unbound-method */
 });
-

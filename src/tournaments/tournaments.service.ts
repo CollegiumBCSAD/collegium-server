@@ -337,10 +337,9 @@ export class TournamentsService {
       );
     }
 
-    if (
-      tournament.status !== TournamentStatus.UPCOMING &&
-      tournament.status !== TournamentStatus.PENDING_APPROVAL
-    ) {
+    // Only an approved (UPCOMING) tournament can start — allowing
+    // PENDING_APPROVAL here bypassed admin approval via the fallback below.
+    if (tournament.status !== TournamentStatus.UPCOMING) {
       throw new BadRequestException(
         `Cannot start tournament with status ${tournament.status}`,
       );
@@ -441,54 +440,144 @@ export class TournamentsService {
       );
     }
 
+    let resolvedTeamId = body?.teamId;
     let resolvedTeamName = body?.teamName;
-    if (body?.teamId && !resolvedTeamName) {
-      const team = await this.prisma.team.findUnique({
-        where: { id: body.teamId },
-        select: { name: true },
+
+    // If no teamId was explicitly passed, attempt to find a matching squad the user belongs to
+    if (!resolvedTeamId) {
+      const userTeam = await this.prisma.team.findFirst({
+        where: {
+          universityId: user.universityId,
+          ...(tournament.gameTitle ? { gameTitle: tournament.gameTitle } : {}),
+          OR: [
+            { captainId: user.id },
+            {
+              members: {
+                some: {
+                  userId: user.id,
+                  status: { not: 'DECLINED' },
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          members: {
+            where: { status: { not: 'DECLINED' } },
+            include: { user: true },
+          },
+          captain: true,
+        },
       });
-      if (team?.name) resolvedTeamName = team.name;
+
+      if (userTeam) {
+        resolvedTeamId = userTeam.id;
+        resolvedTeamName = userTeam.name;
+      }
     }
 
-    const app = await this.prisma.tournamentApplication.upsert({
-      where: {
-        tournamentId_userId: { tournamentId, userId: user.id },
-      },
-      create: {
-        tournamentId,
-        universityId: user.universityId,
-        userId: user.id,
-        applicantName: user.displayName || 'Athletic Captain',
-        teamId: body?.teamId,
-        teamName: resolvedTeamName,
-        status: TournamentApplicationStatus.PENDING,
-      },
-      update: {
-        status: TournamentApplicationStatus.PENDING,
-        teamId: body?.teamId,
-        teamName: resolvedTeamName,
-      },
-      include: { university: { select: { name: true } } },
-    });
+    const team = resolvedTeamId
+      ? await this.prisma.team.findUnique({
+          where: { id: resolvedTeamId },
+          include: {
+            members: {
+              where: { status: { not: 'DECLINED' } },
+              include: { user: true },
+            },
+            captain: true,
+          },
+        })
+      : null;
 
-    return this.mapApplication(app);
+    if (team?.name && !resolvedTeamName) {
+      resolvedTeamName = team.name;
+    }
+
+    // Collect all squad members so every member's application state is synchronized
+    const squadEntries = new Map<string, string>();
+    if (team) {
+      if (team.captainId) {
+        squadEntries.set(
+          team.captainId,
+          team.captain?.displayName || user.displayName || 'Athletic Captain',
+        );
+      }
+      for (const m of team.members) {
+        if (m.userId) {
+          squadEntries.set(
+            m.userId,
+            m.user?.displayName || m.gameHandle || 'Squad Athlete',
+          );
+        }
+      }
+    }
+    // Always include the applying user
+    squadEntries.set(user.id, user.displayName || 'Athletic Captain');
+
+    let primaryApp: ApplicationRow | null = null;
+    for (const [memberUserId, memberName] of squadEntries.entries()) {
+      const app = await this.prisma.tournamentApplication.upsert({
+        where: {
+          tournamentId_userId: { tournamentId, userId: memberUserId },
+        },
+        create: {
+          tournamentId,
+          universityId: user.universityId,
+          userId: memberUserId,
+          applicantName: memberName,
+          teamId: team?.id || resolvedTeamId,
+          teamName: resolvedTeamName,
+          status: TournamentApplicationStatus.PENDING,
+        },
+        update: {
+          status: TournamentApplicationStatus.PENDING,
+          teamId: team?.id || resolvedTeamId,
+          teamName: resolvedTeamName,
+          universityId: user.universityId,
+        },
+        include: { university: { select: { name: true } } },
+      });
+
+      if (memberUserId === user.id) {
+        primaryApp = app;
+      }
+    }
+
+    return this.mapApplication(primaryApp!);
   }
 
-  // WITHDRAW / UNDO APPLICATION — Athlete cancels their application
+  // WITHDRAW / UNDO APPLICATION — Athlete cancels their squad application
   async withdrawApplication(tournamentId: string, userId: string) {
     const target = await this.prisma.tournamentApplication.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
 
     if (target) {
-      await this.prisma.tournamentApplication.delete({
-        where: { id: target.id },
+      if (target.teamId) {
+        // Withdraw entire squad application
+        await this.prisma.tournamentApplication.deleteMany({
+          where: { tournamentId, teamId: target.teamId },
+        });
+      } else {
+        await this.prisma.tournamentApplication.delete({
+          where: { id: target.id },
+        });
+      }
+
+      const remainingApproved = await this.prisma.tournamentApplication.count({
+        where: {
+          tournamentId,
+          universityId: target.universityId,
+          status: TournamentApplicationStatus.APPROVED,
+        },
       });
 
-      await this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: { universities: { disconnect: { id: target.universityId } } },
-      });
+      if (remainingApproved === 0) {
+        await this.prisma.tournament.update({
+          where: { id: tournamentId },
+          data: { universities: { disconnect: { id: target.universityId } } },
+        });
+      }
     }
 
     return { success: true, message: 'Application withdrawn successfully' };
@@ -537,18 +626,41 @@ export class TournamentsService {
       throw new NotFoundException('Application not found');
     }
 
-    const updated = await this.prisma.tournamentApplication.update({
-      where: { id: target.id },
-      data: { status: TournamentApplicationStatus.APPROVED },
-      include: { university: { select: { name: true } } },
+    // The bracket is keyed on University — a second approved squad from the
+    // same university would silently vanish (connect is a no-op). Reject it.
+    const rivalSquad = await this.prisma.tournamentApplication.findFirst({
+      where: {
+        tournamentId,
+        universityId: target.universityId,
+        status: TournamentApplicationStatus.APPROVED,
+        id: { not: target.id },
+      },
     });
+    if (rivalSquad) {
+      throw new BadRequestException(
+        'This university already has an approved squad in this tournament',
+      );
+    }
+
+    if (target.teamId) {
+      await this.prisma.tournamentApplication.updateMany({
+        where: { tournamentId, teamId: target.teamId },
+        data: { status: TournamentApplicationStatus.APPROVED },
+      });
+    } else {
+      await this.prisma.tournamentApplication.update({
+        where: { id: target.id },
+        data: { status: TournamentApplicationStatus.APPROVED },
+      });
+    }
 
     await this.prisma.tournament.update({
       where: { id: tournamentId },
       data: { universities: { connect: { id: target.universityId } } },
     });
 
-    return this.mapApplication(updated);
+    const updated = await this.findApplication(tournamentId, applicationId);
+    return this.mapApplication(updated || target);
   }
 
   // REJECT APPLICATION — Organizer declines squad application
@@ -559,18 +671,35 @@ export class TournamentsService {
       throw new NotFoundException('Application not found');
     }
 
-    const updated = await this.prisma.tournamentApplication.update({
-      where: { id: target.id },
-      data: { status: TournamentApplicationStatus.REJECTED },
-      include: { university: { select: { name: true } } },
+    if (target.teamId) {
+      await this.prisma.tournamentApplication.updateMany({
+        where: { tournamentId, teamId: target.teamId },
+        data: { status: TournamentApplicationStatus.REJECTED },
+      });
+    } else {
+      await this.prisma.tournamentApplication.update({
+        where: { id: target.id },
+        data: { status: TournamentApplicationStatus.REJECTED },
+      });
+    }
+
+    const remainingApproved = await this.prisma.tournamentApplication.count({
+      where: {
+        tournamentId,
+        universityId: target.universityId,
+        status: TournamentApplicationStatus.APPROVED,
+      },
     });
 
-    await this.prisma.tournament.update({
-      where: { id: tournamentId },
-      data: { universities: { disconnect: { id: target.universityId } } },
-    });
+    if (remainingApproved === 0) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { universities: { disconnect: { id: target.universityId } } },
+      });
+    }
 
-    return this.mapApplication(updated);
+    const updated = await this.findApplication(tournamentId, applicationId);
+    return this.mapApplication(updated || target);
   }
 
   // REGISTER — Register a university for a tournament directly (Legacy/Admin)
@@ -641,13 +770,13 @@ export class TournamentsService {
     } else if (tournament.bracketFormat === 'Double Elimination') {
       await this.generateDoubleEliminationRound1(tournamentId, universities);
     } else {
-      this.assertEvenContestants(universities.length);
-      await this.createRound(
-        tournamentId,
-        this.shuffle(universities).map((u) => u.id),
-        1,
-        null,
+      const seeded = await this.seedByRating(
+        universities,
+        tournament.gameTitle,
       );
+      await this.prisma.match.createMany({
+        data: this.buildEliminationRound1(tournamentId, seeded, null),
+      });
     }
 
     // Move tournament to ONGOING now that the bracket is seeded
@@ -684,20 +813,82 @@ export class TournamentsService {
 
   // --- Bracket generation & advancement helpers -----------------------------
 
-  private assertEvenContestants(count: number) {
-    if (count % 2 !== 0) {
-      throw new BadRequestException(
-        'An even number of universities is required to generate a bracket',
-      );
-    }
-  }
-
   private isPowerOfTwo(n: number) {
     return n >= 4 && (n & (n - 1)) === 0;
   }
 
+  private nextPowerOfTwo(n: number): number {
+    let p = 1;
+    while (p < n) p *= 2;
+    return p;
+  }
+
   private shuffle<T>(list: T[]): T[] {
-    return [...list].sort(() => Math.random() - 0.5);
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Seed strongest-first by Glicko-2 rating; unrated default to 1500, ties random.
+  private async seedByRating(
+    universities: { id: string }[],
+    gameTitle: GameTitle | null,
+  ): Promise<string[]> {
+    const teams = gameTitle
+      ? await this.prisma.team.findMany({
+          where: {
+            gameTitle,
+            universityId: { in: universities.map((u) => u.id) },
+          },
+          select: { universityId: true, glicko2_rating: true },
+        })
+      : [];
+    const byId = new Map(teams.map((t) => [t.universityId, t.glicko2_rating]));
+    return universities
+      .map((u) => ({
+        id: u.id,
+        rating: byId.get(u.id) ?? 1500,
+        rand: Math.random(),
+      }))
+      .sort((a, b) => b.rating - a.rating || a.rand - b.rand)
+      .map((u) => u.id);
+  }
+
+  // Round 1 for any field size: pad to the next power of 2 with byes, top seeds
+  // get a pre-verified bye match (no opponent, no rating change) that advances
+  // them to round 2; the rest pair strongest-vs-weakest.
+  // ponytail: round-2 pairing follows creation order, not a fixed positional
+  // tree — byes reward top seeds, they don't guarantee seed 1 vs seed 2 in the
+  // final. Track positions explicitly if a true seeded tree is needed.
+  private buildEliminationRound1(
+    tournamentId: string,
+    seeded: string[],
+    bracketSide: BracketSide | null,
+  ) {
+    const bracketSize = this.nextPowerOfTwo(seeded.length);
+    const byeCount = bracketSize - seeded.length;
+    const byeTeams = seeded.slice(0, byeCount);
+    const playing = seeded.slice(byeCount);
+
+    const rows = byeTeams.map((t) =>
+      this.matchRow(tournamentId, t, null, 1, bracketSide, true),
+    );
+    for (let i = 0; i < playing.length / 2; i++) {
+      rows.push(
+        this.matchRow(
+          tournamentId,
+          playing[i],
+          playing[playing.length - 1 - i],
+          1,
+          bracketSide,
+          false,
+        ),
+      );
+    }
+    return rows;
   }
 
   private pairUp<T>(list: T[]): [T, T][] {
@@ -711,9 +902,10 @@ export class TournamentsService {
   private matchRow(
     tournamentId: string,
     winnerId: string,
-    loserId: string,
+    loserId: string | null,
     round: number,
     bracketSide: BracketSide | null,
+    isVerified = false,
   ) {
     return {
       title: GameTitle.LOL, // Defaulting to LOL; can be extended when other titles are active
@@ -723,8 +915,8 @@ export class TournamentsService {
       gameMode: 'CLASSIC',
       platformId: 'PH',
       winnerId,
-      loserId,
-      isVerified: false,
+      loserId: loserId ?? undefined,
+      isVerified,
       round,
       bracketSide: bracketSide ?? undefined,
     };
@@ -779,6 +971,8 @@ export class TournamentsService {
     const ranked = [...wins.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([id]) => id);
+
+    if (ranked.length < 2) return;
 
     // Playoffs need a power-of-2 field; drop the lowest seeds that don't fit.
     let bracketSize = 2;
@@ -1055,6 +1249,17 @@ export class TournamentsService {
       }
     }
 
+    // Atomic claim: only one concurrent close flips isVerified false->true, so
+    // stat insert can't run twice. After validation so a bad payload can't leave
+    // the match stuck verified.
+    const claim = await this.prisma.match.updateMany({
+      where: { id: matchId, tournamentId, isVerified: false },
+      data: { isVerified: true },
+    });
+    if (claim.count === 0) {
+      throw new BadRequestException('This match is already closed');
+    }
+
     // Persist player stats and mark match as verified. Ratings are NOT updated
     // here; the rating pipeline is an event-driven batch update at tournament closure.
     await this.prisma.playerStat.createMany({
@@ -1090,6 +1295,12 @@ export class TournamentsService {
     if (!tournament) {
       throw new NotFoundException('Tournament not found');
     }
+
+    // PlayerStat has no cascade on its match FK, so delete stats before matches
+    // or the match delete hits a foreign-key violation.
+    await this.prisma.playerStat.deleteMany({
+      where: { match: { tournamentId: id } },
+    });
 
     await this.prisma.match.deleteMany({
       where: { tournamentId: id },

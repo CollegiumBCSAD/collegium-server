@@ -84,6 +84,20 @@ export class TeamsService {
       );
     }
 
+    const existingMembership = await this.prisma.teamMember.findFirst({
+      where: {
+        userId: dto.captainId,
+        status: TeamMemberStatus.ACCEPTED,
+      },
+      include: { team: true },
+    });
+
+    if (existingMembership) {
+      throw new BadRequestException(
+        `You already belong to ${existingMembership.team.name}. Each athlete is limited to 1 varsity team. Please leave your current squad before creating a new one.`,
+      );
+    }
+
     const existing = await this.prisma.team.findFirst({
       where: {
         name: { equals: dto.name, mode: 'insensitive' },
@@ -219,6 +233,20 @@ export class TeamsService {
     if (existingMember) {
       throw new BadRequestException(
         'User is already a member or applicant of this team.',
+      );
+    }
+
+    const existingMembership = await this.prisma.teamMember.findFirst({
+      where: {
+        userId: dto.userId,
+        status: TeamMemberStatus.ACCEPTED,
+      },
+      include: { team: true },
+    });
+
+    if (existingMembership) {
+      throw new BadRequestException(
+        `You already belong to ${existingMembership.team.name}. Each athlete is limited to 1 varsity team. Please leave your current squad before joining another.`,
       );
     }
 
