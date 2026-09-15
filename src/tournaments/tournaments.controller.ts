@@ -244,6 +244,21 @@ export class TournamentsController {
     return this.tournamentsService.findOne(tournamentId);
   }
 
+  @Post(':id/matches/:mid/scan')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @UseInterceptors(FileInterceptor('image', IMAGE_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Scan a match result screenshot and extract per-player stats',
+  })
+  scanMatch(
+    @Param('id') tournamentId: string,
+    @Param('mid') matchId: string,
+    @UploadedFile() image?: Express.Multer.File,
+  ) {
+    return this.tournamentsService.scanMatch(tournamentId, matchId, image);
+  }
+
   // POST /tournaments/:id/matches/:mid/close — Admin or Organizer manually reports
   // the winner and per-player stats, verifying the match (no Riot API involved)
   @Post(':id/matches/:mid/close')

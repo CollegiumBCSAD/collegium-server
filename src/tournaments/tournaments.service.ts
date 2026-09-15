@@ -11,6 +11,7 @@ import {
   MatchMode,
   NotificationCategory,
   NotificationType,
+  Prisma,
   Role,
   TournamentApplicationStatus,
   TournamentStatus,
@@ -19,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GlickoService } from '../universities/glicko.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { OcrService } from '../ocr/ocr.service';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -70,7 +72,33 @@ export class TournamentsService {
     private glickoService: GlickoService,
     private notificationsService: NotificationsService,
     private cloudinaryService: CloudinaryService,
+    private ocrService: OcrService,
   ) {}
+
+  async scanMatch(
+    tournamentId: string,
+    matchId: string,
+    image?: Express.Multer.File,
+  ) {
+    if (!image) {
+      throw new BadRequestException('A screenshot image is required');
+    }
+
+    const match = await this.prisma.match.findFirst({
+      where: { id: matchId, tournamentId },
+    });
+
+    if (!match) {
+      throw new NotFoundException('Match not found in this tournament');
+    }
+
+    return this.ocrService.recognize(
+      image.buffer,
+      image.mimetype,
+      image.originalname,
+      match.title,
+    );
+  }
 
   private mapApplication(app: ApplicationRow): TournamentApplication {
     return {
@@ -1233,6 +1261,9 @@ export class TournamentsService {
         assists: player.assists,
         win: player.universityId === dto.winnerId,
         dataSource: DataSource.PEER_VERIFIED,
+        ...(player.extra !== undefined
+          ? { extraStats: player.extra as Prisma.InputJsonValue }
+          : {}),
       })),
     });
 

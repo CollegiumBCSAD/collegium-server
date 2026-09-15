@@ -4,6 +4,7 @@ import { BracketSide, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { OcrService } from '../ocr/ocr.service';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
@@ -63,6 +64,10 @@ const mockCloudinaryService = {
   destroy: jest.fn(),
 };
 
+const mockOcrService = {
+  recognize: jest.fn(),
+};
+
 describe('TournamentsService', () => {
   let service: TournamentsService;
 
@@ -74,6 +79,7 @@ describe('TournamentsService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
+        { provide: OcrService, useValue: mockOcrService },
       ],
     }).compile();
 
