@@ -4,6 +4,7 @@ import {
   IsArray,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -34,6 +35,10 @@ export class ClosePlayerStatDto {
   @IsInt()
   @Min(0)
   assists: number;
+
+  @IsOptional()
+  @IsObject()
+  extra?: Record<string, unknown>;
 }
 
 export class CloseMatchDto {
