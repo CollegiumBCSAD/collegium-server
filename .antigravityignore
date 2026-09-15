@@ -1,0 +1,24 @@
+# Dependencies & build output
+node_modules/
+dist/
+build/
+coverage/
+.next/
+
+# Generated Prisma client (regenerated from schema.prisma)
+node_modules/.prisma/
+prisma/generated/
+
+# Lockfiles
+pnpm-lock.yaml
+package-lock.json
+
+# Paper artifacts — not implementation context, and expensive to index
+*.pdf
+*.docx
+
+# Logs, env, local
+*.log
+.env
+.env.*
+!.env.example

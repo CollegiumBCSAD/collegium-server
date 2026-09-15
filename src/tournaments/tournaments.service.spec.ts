@@ -5,13 +5,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { OcrService } from '../ocr/ocr.service';
+import { RankingService } from '../ranking/ranking.service';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
 // We never hit a real database in unit tests. We mock PrismaService
 // with jest.fn() so we can control what it returns in each test.
-
-import { GlickoService } from '../universities/glicko.service';
 
 const mockPrismaService = {
   tournament: {
@@ -39,10 +38,10 @@ const mockPrismaService = {
     createMany: jest.fn(),
     deleteMany: jest.fn(),
   },
-  universityGameRating: {
-    upsert: jest.fn(),
-    update: jest.fn(),
+  team: {
     findMany: jest.fn(),
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
   },
   tournamentApplication: {
     findMany: jest.fn(),
@@ -68,6 +67,11 @@ const mockOcrService = {
   recognize: jest.fn(),
 };
 
+const mockRankingService = {
+  closeTournamentRatingPeriod: jest.fn().mockResolvedValue({}),
+  getTeamRatingHistory: jest.fn().mockResolvedValue([]),
+};
+
 describe('TournamentsService', () => {
   let service: TournamentsService;
 
@@ -75,11 +79,11 @@ describe('TournamentsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TournamentsService,
-        GlickoService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: CloudinaryService, useValue: mockCloudinaryService },
         { provide: OcrService, useValue: mockOcrService },
+        { provide: RankingService, useValue: mockRankingService },
       ],
     }).compile();
 
@@ -88,18 +92,9 @@ describe('TournamentsService', () => {
     // Reset all mocks before each test so they don't bleed into each other
     jest.clearAllMocks();
 
-    // Sane default so closeMatch()'s Glicko rating lookups resolve to a
-    // valid rating object unless a specific test overrides them.
-    mockPrismaService.universityGameRating.upsert.mockImplementation(
-      ({ create }: { create: { universityId: string } }) => ({
-        id: `rating-${create.universityId}`,
-        glicko2_rating: 1500,
-        glicko2_rd: 350,
-        glicko2_sigma: 0.06,
-      }),
-    );
-    mockPrismaService.universityGameRating.update.mockResolvedValue({});
-    mockPrismaService.universityGameRating.findMany.mockResolvedValue([]);
+    mockPrismaService.team.findMany.mockResolvedValue([]);
+    mockPrismaService.team.findFirst.mockResolvedValue(null);
+    mockPrismaService.team.findUnique.mockResolvedValue(null);
     mockPrismaService.playerStat.createMany.mockResolvedValue({ count: 0 });
     mockPrismaService.match.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -729,10 +724,9 @@ describe('TournamentsService', () => {
 
       await service.closeMatch(tournamentId, matchId, closeDto);
 
-      expect(mockPrismaService.tournament.update).toHaveBeenCalledWith({
-        where: { id: tournamentId },
-        data: { status: TournamentStatus.COMPLETED },
-      });
+      expect(
+        mockRankingService.closeTournamentRatingPeriod,
+      ).toHaveBeenCalledWith(tournamentId);
     });
   });
 
