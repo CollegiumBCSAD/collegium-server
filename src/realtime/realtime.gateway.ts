@@ -13,7 +13,12 @@ import {
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
-import { AccountStatus, TeamMemberStatus } from '@prisma/client';
+import {
+  AccountStatus,
+  Role,
+  TeamMemberStatus,
+  TournamentApplicationStatus,
+} from '@prisma/client';
 
 function parseCookies(
   cookieHeader: string | undefined,
@@ -43,6 +48,10 @@ function userRoom(userId: string): string {
 
 function scrimRoom(scrimId: string): string {
   return `scrim:${scrimId}`;
+}
+
+function tournamentRoom(tournamentId: string): string {
+  return `tournament:${tournamentId}`;
 }
 
 interface SocketData {
@@ -156,6 +165,37 @@ export class RealtimeGateway
     return Boolean(membership);
   }
 
+  private async isTournamentParticipant(
+    userId: string,
+    tournamentId: string,
+  ): Promise<boolean> {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id: tournamentId },
+      select: { organizerId: true },
+    });
+    if (!tournament) return false;
+    if (tournament.organizerId === userId) return true;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (user?.role === Role.ORGANIZER || user?.role === Role.ADMIN) return true;
+
+    const application = await this.prisma.tournamentApplication.findFirst({
+      where: {
+        tournamentId,
+        status: TournamentApplicationStatus.APPROVED,
+        OR: [
+          { userId },
+          { team: { OR: [{ captainId: userId }, { members: { some: { userId } } }] } },
+        ],
+      },
+    });
+
+    return Boolean(application);
+  }
+
   @SubscribeMessage('scrim:join')
   async handleJoinScrim(
     @ConnectedSocket() client: Socket,
@@ -181,5 +221,32 @@ export class RealtimeGateway
 
   emitToScrim(scrimId: string, event: string, payload: unknown) {
     this.server.to(scrimRoom(scrimId)).emit(event, payload);
+  }
+
+  @SubscribeMessage('tournament:join')
+  async handleJoinTournament(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() tournamentId: string,
+  ) {
+    const userId = await this.authenticate(client);
+    if (!userId || !tournamentId) return;
+
+    const isParticipant = await this.isTournamentParticipant(userId, tournamentId);
+    if (!isParticipant) return;
+
+    await client.join(tournamentRoom(tournamentId));
+  }
+
+  @SubscribeMessage('tournament:leave')
+  async handleLeaveTournament(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() tournamentId: string,
+  ) {
+    if (!tournamentId) return;
+    await client.leave(tournamentRoom(tournamentId));
+  }
+
+  emitToTournament(tournamentId: string, event: string, payload: unknown) {
+    this.server.to(tournamentRoom(tournamentId)).emit(event, payload);
   }
 }

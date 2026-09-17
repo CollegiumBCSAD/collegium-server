@@ -4,6 +4,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { OcrModule } from '../ocr/ocr.module';
 import { RankingModule } from '../ranking/ranking.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { TournamentsController } from './tournaments.controller';
 import { TournamentsService } from './tournaments.service';
 
@@ -14,6 +15,7 @@ import { TournamentsService } from './tournaments.service';
     CloudinaryModule,
     OcrModule,
     RankingModule,
+    RealtimeModule,
   ],
   controllers: [TournamentsController],
   providers: [TournamentsService],

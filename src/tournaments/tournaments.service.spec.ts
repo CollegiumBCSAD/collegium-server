@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BracketSide, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { TournamentsService } from './tournaments.service';
 
 // MOCK FACTORIES
@@ -51,6 +52,13 @@ const mockPrismaService = {
     update: jest.fn(),
     delete: jest.fn(),
   },
+  tournamentChatMessage: {
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    delete: jest.fn(),
+  },
   $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(mockPrismaService)),
 };
 
@@ -72,6 +80,12 @@ const mockRankingService = {
   getTeamRatingHistory: jest.fn().mockResolvedValue([]),
 };
 
+const mockRealtimeGateway = {
+  emitToTournament: jest.fn(),
+  emitToUser: jest.fn(),
+  emitToScrim: jest.fn(),
+};
+
 describe('TournamentsService', () => {
   let service: TournamentsService;
 
@@ -84,6 +98,7 @@ describe('TournamentsService', () => {
         { provide: CloudinaryService, useValue: mockCloudinaryService },
         { provide: OcrService, useValue: mockOcrService },
         { provide: RankingService, useValue: mockRankingService },
+        { provide: RealtimeGateway, useValue: mockRealtimeGateway },
       ],
     }).compile();
 
@@ -1101,6 +1116,260 @@ describe('TournamentsService', () => {
       mockPrismaService.tournamentApplication.findMany.mockResolvedValue([]);
       const result = await service.getAllPendingApplications();
       expect(result).toEqual([]);
+    });
+  });
+
+  // Squad-level application & validation
+  describe('applyForTournament()', () => {
+    it('rejects squad application if active roster count is less than min_roster_size', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.UPCOMING,
+        gameTitle: GameTitle.VALORANT,
+      });
+
+      mockPrismaService.team.findUnique.mockResolvedValue({
+        id: 'team-1',
+        name: 'UP Fighting Maroons',
+        universityId: 'uni-1',
+        captainId: 'u-cap',
+        min_roster_size: 5,
+        members: [{ userId: 'u-1', status: 'ACCEPTED' }], // Only 2 total active slots (captain + 1 member)
+        captain: { id: 'u-cap', displayName: 'Captain' },
+      });
+
+      await expect(
+        service.applyForTournament(
+          't1',
+          { id: 'u-cap', universityId: 'uni-1' },
+          { teamId: 'team-1' },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('snapshots roster and creates a single team-level application when roster meets min size', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.UPCOMING,
+        gameTitle: GameTitle.VALORANT,
+      });
+
+      const members = [
+        { userId: 'u-1', status: 'ACCEPTED', gameHandle: 'Player1' },
+        { userId: 'u-2', status: 'ACCEPTED', gameHandle: 'Player2' },
+        { userId: 'u-3', status: 'ACCEPTED', gameHandle: 'Player3' },
+        { userId: 'u-4', status: 'ACCEPTED', gameHandle: 'Player4' },
+      ];
+
+      mockPrismaService.team.findUnique.mockResolvedValue({
+        id: 'team-1',
+        name: 'UP Fighting Maroons',
+        universityId: 'uni-1',
+        captainId: 'u-cap',
+        min_roster_size: 5,
+        members,
+        captain: { id: 'u-cap', displayName: 'Captain' },
+      });
+
+      mockPrismaService.tournamentApplication.upsert.mockResolvedValue({
+        id: 'app-1',
+        tournamentId: 't1',
+        universityId: 'uni-1',
+        userId: 'u-cap',
+        applicantName: 'Captain',
+        status: 'PENDING',
+        teamId: 'team-1',
+        teamName: 'UP Fighting Maroons',
+        appliedAt: new Date(),
+        rosterSnapshot: [{ userId: 'u-cap', role: 'Captain / Starter' }],
+        university: { name: 'University of the Philippines' },
+        team: { name: 'UP Fighting Maroons' },
+      });
+
+      const res = await service.applyForTournament(
+        't1',
+        { id: 'u-cap', displayName: 'Captain', universityId: 'uni-1' },
+        { teamId: 'team-1' },
+      );
+
+      expect(res.teamId).toBe('team-1');
+      expect(res.status).toBe('PENDING');
+      expect(mockPrismaService.tournamentApplication.upsert).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // forfeitMatch()
+  describe('forfeitMatch()', () => {
+    it('forfeits match with zero player stats and advances non-forfeiting team', async () => {
+      mockPrismaService.match.findFirst.mockResolvedValue({
+        id: 'm1',
+        tournamentId: 't1',
+        isVerified: false,
+        winnerId: 'uni-1',
+        loserId: 'uni-2',
+        round: 1,
+        slot: 0,
+      });
+
+      mockPrismaService.match.update.mockResolvedValue({
+        id: 'm1',
+        winnerId: 'uni-2', // uni-1 forfeited, so uni-2 wins
+        loserId: 'uni-1',
+        isVerified: true,
+        isForfeit: true,
+        forfeitingTeamId: 'uni-1',
+      });
+
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.ONGOING,
+        bracketFormat: 'Single Elimination',
+      });
+
+      mockPrismaService.match.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          round: 1,
+          bracketSide: null,
+          winnerId: 'uni-2',
+          loserId: 'uni-1',
+          isVerified: true,
+          slot: 0,
+        },
+        {
+          id: 'm2',
+          round: 1,
+          bracketSide: null,
+          winnerId: null,
+          loserId: null,
+          isVerified: false, // Still unverified! Championship guard blocks completion
+          slot: 1,
+        },
+      ]);
+
+      const result = await service.forfeitMatch('t1', 'm1', 'uni-1');
+
+      expect(result.isForfeit).toBe(true);
+      expect(result.winnerId).toBe('uni-2');
+      // Verify no player stats were created
+      expect(mockPrismaService.playerStat.createMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // Tournament global channel messages
+  describe('tournament global channel', () => {
+    it('blocks a non-participant from reading the channel', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        organizerId: 'org-1',
+      });
+      mockPrismaService.tournamentApplication.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getTournamentMessages('t1', { id: 'outsider-1', role: Role.ATHLETE }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lets an athlete on an approved participating squad read the channel', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        organizerId: 'org-1',
+      });
+      mockPrismaService.tournamentApplication.findFirst.mockResolvedValue({
+        teamName: 'Squad Alpha',
+      });
+      mockPrismaService.tournamentChatMessage.findMany.mockResolvedValue([]);
+
+      const res = await service.getTournamentMessages('t1', {
+        id: 'user-1',
+        role: Role.ATHLETE,
+      });
+
+      expect(res).toEqual([]);
+    });
+
+    it('blocks a non-participant from posting to the channel', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        organizerId: 'org-1',
+      });
+      mockPrismaService.tournamentApplication.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createTournamentMessage(
+          't1',
+          { id: 'outsider-1', displayName: 'Random Athlete', role: Role.ATHLETE },
+          { text: 'Can I sneak in?' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('creates a message and emits to socket room', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        organizerId: 'org-1',
+      });
+
+      mockPrismaService.tournamentApplication.findFirst.mockResolvedValue({
+        teamName: 'Squad Alpha',
+      });
+
+      mockPrismaService.tournamentChatMessage.create.mockResolvedValue({
+        id: 'msg-1',
+        tournamentId: 't1',
+        senderId: 'user-1',
+        senderName: 'Player One',
+        teamName: 'Squad Alpha',
+        text: 'Ready for the match!',
+        isPinned: false,
+        isAnnouncement: false,
+      });
+
+      const res = await service.createTournamentMessage(
+        't1',
+        { id: 'user-1', displayName: 'Player One', role: Role.ATHLETE },
+        { text: 'Ready for the match!' },
+      );
+
+      expect(res.id).toBe('msg-1');
+      expect(mockRealtimeGateway.emitToTournament).toHaveBeenCalledWith(
+        't1',
+        'tournament:new_message',
+        expect.any(Object),
+      );
+    });
+
+    it('allows organizer to create pinned announcements', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        organizerId: 'org-1',
+      });
+
+      mockPrismaService.tournamentChatMessage.create.mockResolvedValue({
+        id: 'msg-announcement',
+        tournamentId: 't1',
+        senderId: 'org-1',
+        senderName: 'Tournament Director',
+        text: 'Bracket matches will begin at 2:00 PM!',
+        isPinned: true,
+        isAnnouncement: true,
+      });
+
+      const res = await service.createTournamentMessage(
+        't1',
+        { id: 'org-1', displayName: 'Tournament Director', role: Role.ORGANIZER },
+        { text: 'Bracket matches will begin at 2:00 PM!', isPinned: true, isAnnouncement: true },
+      );
+
+      expect(mockPrismaService.tournamentChatMessage.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            isPinned: true,
+            isAnnouncement: true,
+          }),
+        }),
+      );
+      expect(res.isPinned).toBe(true);
     });
   });
 });

@@ -114,6 +114,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   notifications  Notification[]
   scrimChatMessages ScrimChatMessage[]
+  tournamentChatMessages TournamentChatMessage[]
   organizedTournaments Tournament[] @relation("TournamentOrganizer")
   tournamentApplications TournamentApplication[]
   gameHandles    UserGameHandle[]
@@ -191,6 +192,7 @@ model Scrim {
   opponent      Team?       @relation("ScrimOpponent", fields: [opponentId], references: [id])
   createdAt     DateTime    @default(now())
   chatMessages  ScrimChatMessage[]
+  match         Match?
 }
 
 model ScrimChatMessage {
@@ -216,6 +218,8 @@ model Match {
   gameMode     String
   platformId   String
   isVerified   Boolean      @default(false)
+  isForfeit    Boolean      @default(false)
+  forfeitingTeamId String?
   playedAt     DateTime     @default(now())
   playerStats  PlayerStat[]
   winnerId     String?
@@ -224,6 +228,8 @@ model Match {
   loser        University?  @relation("MatchLoser", fields: [loserId], references: [id])
   tournamentId String?
   tournament   Tournament?  @relation(fields: [tournamentId], references: [id])
+  scrimId      String?      @unique
+  scrim        Scrim?       @relation(fields: [scrimId], references: [id])
   // Bracket position within a tournament. round 0 = round-robin group stage;
   // round 1+ = single-elim rounds, playoff rounds, or double-elim WB/LB rounds.
   round        Int          @default(1)
@@ -265,6 +271,7 @@ model Tournament {
   universities            University[]
   applications            TournamentApplication[]
   ratingHistories         RatingHistory[]
+  chatMessages            TournamentChatMessage[]
 }
 
 model RatingHistory {
@@ -288,22 +295,40 @@ model RatingHistory {
 }
 
 model TournamentApplication {
-  id            String                      @id @default(uuid())
-  tournamentId  String
-  tournament    Tournament                  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  universityId  String
-  university    University                  @relation(fields: [universityId], references: [id])
-  userId        String
-  user          User                        @relation(fields: [userId], references: [id])
-  applicantName String
-  status        TournamentApplicationStatus @default(PENDING)
-  teamId        String?
-  team          Team?                       @relation(fields: [teamId], references: [id])
-  teamName      String?
-  appliedAt     DateTime                    @default(now())
+  id             String                      @id @default(uuid())
+  tournamentId   String
+  tournament     Tournament                  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  universityId   String
+  university     University                  @relation(fields: [universityId], references: [id])
+  userId         String
+  user           User                        @relation(fields: [userId], references: [id])
+  applicantName  String
+  status         TournamentApplicationStatus @default(PENDING)
+  teamId         String
+  team           Team                        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamName       String?
+  rosterSnapshot Json?
+  appliedAt      DateTime                    @default(now())
 
-  @@unique([tournamentId, userId])
+  @@unique([tournamentId, teamId])
   @@index([tournamentId])
+}
+
+model TournamentChatMessage {
+  id             String      @id @default(uuid())
+  tournamentId   String
+  tournament     Tournament  @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  senderName     String
+  teamName       String?
+  text           String
+  isPinned       Boolean     @default(false)
+  isAnnouncement Boolean     @default(false)
+  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime    @default(now())
+
+  @@index([tournamentId, createdAt])
 }
 
 model PlayerStat {

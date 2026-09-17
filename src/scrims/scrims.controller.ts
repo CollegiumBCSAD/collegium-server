@@ -8,13 +8,18 @@ import {
   Param,
   Query,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ScrimsService } from './scrims.service';
 import {
   CreateScrimDto,
   AcceptScrimDto,
   SendScrimChatDto,
+  FinalizeScrimDto,
 } from './dto/scrims.dto';
 import { GameTitle, Role, ScrimStatus, User } from '@prisma/client';
 import { Public } from '../auth/decorators/public.decorator';
@@ -72,6 +77,26 @@ export class ScrimsController {
   @ApiOperation({ summary: 'Cancel a scrim offer (Requires authentication)' })
   cancelScrim(@Param('id') id: string) {
     return this.scrimsService.cancelScrim(id);
+  }
+
+  @Post(':id/scan')
+  @UseInterceptors(FileInterceptor('image', { storage: memoryStorage() }))
+  @ApiOperation({ summary: 'Mandatory pre-close OCR scoreboard scan for scrim' })
+  scanScrim(
+    @Param('id') id: string,
+    @UploadedFile() image?: Express.Multer.File,
+  ) {
+    return this.scrimsService.scanScrim(id, image);
+  }
+
+  @Post(':id/finalize')
+  @ApiOperation({ summary: 'Finalize scrim match log and sync into dedicated ledger' })
+  finalizeScrim(
+    @Req() req: { user: User },
+    @Param('id') id: string,
+    @Body() dto: FinalizeScrimDto,
+  ) {
+    return this.scrimsService.finalizeScrim(id, req.user, dto);
   }
 
   @Patch(':id/complete')
