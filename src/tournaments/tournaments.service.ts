@@ -23,6 +23,7 @@ import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
+import { UpdateStreamDto } from './dto/update-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 
 interface BracketMatchRow {
@@ -343,6 +344,56 @@ export class TournamentsService {
     }
 
     return updated;
+  }
+
+  // UPDATE STREAM — one official broadcast URL per tournament (not per match).
+  // featuredMatchId optionally marks which match is currently on that stream.
+  async updateStream(
+    id: string,
+    dto: UpdateStreamDto,
+    user: { id: string; role: Role },
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+    });
+
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+
+    const isOwner = tournament.organizerId === user.id;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'You do not have permission to edit this tournament stream',
+      );
+    }
+
+    if (dto.featuredMatchId) {
+      const match = await this.prisma.match.findFirst({
+        where: { id: dto.featuredMatchId, tournamentId: id },
+        select: { id: true },
+      });
+      if (!match) {
+        throw new BadRequestException(
+          'featuredMatchId must belong to this tournament',
+        );
+      }
+    }
+
+    return this.prisma.tournament.update({
+      where: { id },
+      data: {
+        ...(dto.streamUrl !== undefined ? { streamUrl: dto.streamUrl } : {}),
+        ...(dto.streamIsLive !== undefined
+          ? { streamIsLive: dto.streamIsLive }
+          : {}),
+        ...(dto.featuredMatchId !== undefined
+          ? { featuredMatchId: dto.featuredMatchId }
+          : {}),
+      },
+    });
   }
 
   // START TOURNAMENT — Organizer or Admin starts an approved upcoming tournament

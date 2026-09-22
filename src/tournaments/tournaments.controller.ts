@@ -24,6 +24,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
+import { UpdateStreamDto } from './dto/update-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { TournamentsService } from './tournaments.service';
 
@@ -101,6 +102,24 @@ export class TournamentsController {
       updateTournamentDto,
       req.user,
       image,
+    );
+  }
+
+  // PATCH /tournaments/:id/stream — Organizer or Admin sets the official broadcast
+  @Patch(':id/stream')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({
+    summary: 'Set tournament stream URL, live flag, and featured match',
+  })
+  updateStream(
+    @Param('id') id: string,
+    @Body() updateStreamDto: UpdateStreamDto,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.updateStream(
+      id,
+      updateStreamDto,
+      req.user,
     );
   }
 
