@@ -256,6 +256,12 @@ model Tournament {
   locked_at               DateTime?
   rating_period_closed_at DateTime?
   createdAt               DateTime                @default(now())
+  // One official broadcast per tournament (= one per esport for olympics-style events).
+  // Not per-match — organizers share this URL across all matches and optionally mark
+  // which match is currently featured on that stream.
+  streamUrl               String?
+  streamIsLive            Boolean                 @default(false)
+  featuredMatchId         String?
   matches                 Match[]
   universities            University[]
   applications            TournamentApplication[]
