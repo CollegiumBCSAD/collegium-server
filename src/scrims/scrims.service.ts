@@ -6,16 +6,28 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  DataSource,
   GameTitle,
+  MatchMode,
   NotificationCategory,
   NotificationType,
+  Role,
   ScrimStatus,
   TeamMemberStatus,
   User,
 } from '@prisma/client';
-import { CreateScrimDto, AcceptScrimDto } from './dto/scrims.dto';
+import {
+  CreateScrimDto,
+  AcceptScrimDto,
+  FinalizeScrimDto,
+} from './dto/scrims.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { OcrService } from '../ocr/ocr.service';
+import {
+  FuzzyMatcherService,
+  AthleteCandidate,
+} from '../ocr/fuzzy-matcher.service';
 
 export interface PendingScrimRequest {
   teamId: string;
@@ -29,6 +41,8 @@ export class ScrimsService {
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly ocrService: OcrService,
+    private readonly fuzzyMatcherService: FuzzyMatcherService,
   ) {}
 
   async createScrim(dto: CreateScrimDto, user?: User) {
@@ -369,25 +383,267 @@ export class ScrimsService {
     });
   }
 
-  async completeScrim(scrimId: string) {
+  // SCAN SCRIM — Pre-close mandatory OCR ingestion
+  // Extracts player stats from scoreboard screenshot and fuzzy-resolves against team rosters
+  async scanScrim(scrimId: string, image?: Express.Multer.File) {
+    if (!image) {
+      throw new BadRequestException('A screenshot image is required');
+    }
+
     const scrim = await this.prisma.scrim.findUnique({
       where: { id: scrimId },
       include: {
-        team: { include: { university: true } },
-        opponent: { include: { university: true } },
+        team: {
+          include: {
+            university: true,
+            captain: true,
+            members: {
+              where: { status: 'ACCEPTED' },
+              include: { user: true },
+            },
+          },
+        },
+        opponent: {
+          include: {
+            university: true,
+            captain: true,
+            members: {
+              where: { status: 'ACCEPTED' },
+              include: { user: true },
+            },
+          },
+        },
       },
     });
+
     if (!scrim) {
-      throw new NotFoundException('Scrim offer not found.');
+      throw new NotFoundException('Scrim not found');
     }
 
-    const updated = await this.prisma.scrim.update({
-      where: { id: scrimId },
-      data: { status: ScrimStatus.COMPLETED },
-      include: {
-        team: { include: { university: true } },
-        opponent: { include: { university: true } },
+    // Call Python RapidOCR microservice
+    const scanResult = await this.ocrService.recognize(
+      image.buffer,
+      image.mimetype,
+      image.originalname,
+      scrim.gameTitle,
+    );
+
+    // Build candidate list from both host squad and opponent squad
+    const candidates: AthleteCandidate[] = [];
+    for (const t of [scrim.team, scrim.opponent].filter(Boolean)) {
+      if (!t) continue;
+      if (t.captain) {
+        candidates.push({
+          userId: t.captain.id,
+          displayName: t.captain.displayName,
+          gameHandle: t.captain.displayName,
+          teamId: t.id,
+          teamName: t.name,
+        });
+      }
+      for (const m of t.members) {
+        candidates.push({
+          userId: m.userId,
+          displayName: m.user?.displayName || m.gameHandle,
+          gameHandle: m.gameHandle,
+          teamId: t.id,
+          teamName: t.name,
+          role: m.preferredRole,
+        });
+      }
+    }
+
+    // Run fuzzy resolution
+    const resolvedBatch = this.fuzzyMatcherService.resolveBatch(
+      scanResult.players,
+      candidates,
+    );
+
+    return {
+      scrimId: scrim.id,
+      gameTitle: scrim.gameTitle,
+      players: resolvedBatch,
+      hostTeam: {
+        id: scrim.team.id,
+        name: scrim.team.name,
+        universityId: scrim.team.universityId,
+        universityName: scrim.team.university?.name,
       },
+      opponentTeam: scrim.opponent
+        ? {
+            id: scrim.opponent.id,
+            name: scrim.opponent.name,
+            universityId: scrim.opponent.universityId,
+            universityName: scrim.opponent.university?.name,
+          }
+        : null,
+    };
+  }
+
+  // FINALIZE SCRIM — Commit parsed match log directly into dedicated scrim history ledger
+  async finalizeScrim(scrimId: string, user: User, dto: FinalizeScrimDto) {
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      include: {
+        team: {
+          include: {
+            university: true,
+            members: { where: { status: TeamMemberStatus.ACCEPTED } },
+          },
+        },
+        opponent: {
+          include: {
+            university: true,
+            members: { where: { status: TeamMemberStatus.ACCEPTED } },
+          },
+        },
+        match: true,
+      },
+    });
+
+    if (!scrim) {
+      throw new NotFoundException('Scrim not found');
+    }
+
+    // Validation: any rostered athlete on either participating squad, or an
+    // Admin/Organizer. Match logging isn't limited to captains - any athlete
+    // who played the scrim can log it, and the resulting Match is visible to
+    // both universities' ledgers regardless of who submitted it.
+    const isHostAthlete = scrim.team.members.some((m) => m.userId === user.id);
+    const isOpponentAthlete =
+      !!scrim.opponent &&
+      scrim.opponent.members.some((m) => m.userId === user.id);
+    const isAdmin = user.role === Role.ADMIN || user.role === Role.ORGANIZER;
+
+    if (!isHostAthlete && !isOpponentAthlete && !isAdmin) {
+      throw new ForbiddenException(
+        'Only athletes on the participating squads or platform administrators can finalize scrim match logs.',
+      );
+    }
+
+    // Determine winner/loser universities for ledger. `dto.winnerId` and
+    // `dto.loserId` both arrive as Team ids from the OCR ingest modal
+    // (winnerTeamId/loserTeamId), so both need remapping to University ids -
+    // Match.winnerId/loserId are foreign keys onto University, not Team.
+    let winnerUniversityId = dto.winnerId;
+    let loserUniversityId = dto.loserId;
+
+    if (winnerUniversityId === scrim.team.id) {
+      winnerUniversityId = scrim.team.universityId;
+    } else if (scrim.opponent && winnerUniversityId === scrim.opponent.id) {
+      winnerUniversityId = scrim.opponent.universityId;
+    }
+
+    if (loserUniversityId === scrim.team.id) {
+      loserUniversityId = scrim.team.universityId;
+    } else if (scrim.opponent && loserUniversityId === scrim.opponent.id) {
+      loserUniversityId = scrim.opponent.universityId;
+    } else if (!loserUniversityId && scrim.opponent) {
+      // No loserId supplied at all: derive it as "whichever university
+      // didn't win."
+      loserUniversityId =
+        winnerUniversityId === scrim.team.universityId
+          ? scrim.opponent.universityId
+          : scrim.team.universityId;
+    }
+
+    // Execute in transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Upsert or create Match record with matchMode: SCRIM
+      let match = await tx.match.findUnique({
+        where: { scrimId },
+      });
+
+      if (!match) {
+        match = await tx.match.create({
+          data: {
+            scrimId,
+            title: scrim.gameTitle,
+            matchMode: MatchMode.SCRIM,
+            winnerId: winnerUniversityId,
+            loserId: loserUniversityId,
+            isVerified: true,
+            gameDuration: dto.gameDuration || 1800,
+            gameMode: 'Scrim Practice',
+            platformId: 'SCRIM',
+          },
+        });
+      } else {
+        match = await tx.match.update({
+          where: { id: match.id },
+          data: {
+            winnerId: winnerUniversityId,
+            loserId: loserUniversityId,
+            isVerified: true,
+            gameDuration: dto.gameDuration || match.gameDuration,
+          },
+        });
+
+        // Clean existing stats if any
+        await tx.valorantPlayerStat.deleteMany({
+          where: { playerStat: { matchId: match.id } },
+        });
+        await tx.playerStat.deleteMany({
+          where: { matchId: match.id },
+        });
+      }
+
+      // Write verified PlayerStat records
+      for (const p of dto.players) {
+        let playerUniId = p.universityId;
+        if (!playerUniId && p.userId) {
+          const u = await tx.user.findUnique({ where: { id: p.userId } });
+          playerUniId = u?.universityId || undefined;
+        }
+
+        const stat = await tx.playerStat.create({
+          data: {
+            matchId: match.id,
+            universityId: playerUniId,
+            userId: p.userId,
+            summonerName: p.name,
+            kills: p.kills,
+            deaths: p.deaths,
+            assists: p.assists,
+            win: playerUniId === winnerUniversityId,
+            dataSource: DataSource.PEER_VERIFIED,
+          },
+        });
+
+        if (
+          p.combatScore !== undefined ||
+          p.headshotPct !== undefined ||
+          p.agentName
+        ) {
+          await tx.valorantPlayerStat.create({
+            data: {
+              playerStatId: stat.id,
+              agentName: p.agentName,
+              combatScore: p.combatScore,
+              headshotPct: p.headshotPct,
+            },
+          });
+        }
+      }
+
+      // Transition scrim to COMPLETED
+      const updatedScrim = await tx.scrim.update({
+        where: { id: scrimId },
+        data: { status: ScrimStatus.COMPLETED },
+        include: {
+          team: { include: { university: true } },
+          opponent: { include: { university: true } },
+          match: {
+            include: {
+              playerStats: {
+                include: { valorantStat: true },
+              },
+            },
+          },
+        },
+      });
+
+      return updatedScrim;
     });
 
     if (scrim.opponent) {
@@ -396,13 +652,45 @@ export class ScrimsService {
           userId: scrim.opponent.captainId,
           category: NotificationCategory.SCRIM,
           type: NotificationType.SCRIM_REQUEST_ACCEPTED,
-          title: '🏆 Scrim Match Completed',
-          message: `Practice match between ${scrim.team.name} and ${scrim.opponent.name} has concluded!`,
+          title: '🏆 Scrim Match Log Finalized',
+          message: `Match stats between ${scrim.team.name} and ${scrim.opponent.name} have been verified and logged into your scrim history!`,
           link: '/scrims',
-          refId: `${scrim.id}:COMPLETED`,
+          refId: `${scrim.id}:FINALIZED`,
         })
         .catch(() => null);
     }
+
+    return result;
+  }
+
+  async completeScrim(scrimId: string) {
+    const scrim = await this.prisma.scrim.findUnique({
+      where: { id: scrimId },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+        match: true,
+      },
+    });
+    if (!scrim) {
+      throw new NotFoundException('Scrim offer not found.');
+    }
+
+    if (!scrim.match) {
+      throw new BadRequestException(
+        'Mandatory OCR ingestion required before finalizing scrim. Please upload post-match scoreboard screenshot via /scrims/:id/scan and finalize match stats.',
+      );
+    }
+
+    const updated = await this.prisma.scrim.update({
+      where: { id: scrimId },
+      data: { status: ScrimStatus.COMPLETED },
+      include: {
+        team: { include: { university: true } },
+        opponent: { include: { university: true } },
+        match: true,
+      },
+    });
 
     return updated;
   }

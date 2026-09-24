@@ -30,6 +30,40 @@ export class UniversitiesController {
   }
 
   @Public()
+  @Get(':id/matches')
+  @ApiOperation({
+    summary:
+      "Get a university's verified match history (Tournament and Scrims)",
+  })
+  findMatches(
+    @Param('id') id: string,
+    @Query('gameTitle') gameTitle?: GameTitle,
+    @Query('matchMode') matchMode?: 'ALL' | 'TOURNAMENT' | 'SCRIM',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.universitiesService.findMatches(
+      id,
+      gameTitle,
+      matchMode,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 10,
+    );
+  }
+
+  @Public()
+  @Get(':id/tournaments')
+  @ApiOperation({
+    summary: "Get a university's tournament placement tracker",
+  })
+  findTournamentPlacements(
+    @Param('id') id: string,
+    @Query('gameTitle') gameTitle?: GameTitle,
+  ) {
+    return this.universitiesService.findTournamentPlacements(id, gameTitle);
+  }
+
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get university profile by ID' })
   findOne(@Param('id') id: string) {

@@ -228,6 +228,19 @@ export class TournamentsController {
     return this.tournamentsService.rejectApplication(tournamentId, appId);
   }
 
+  // GET /tournaments/:id/applications/:appId/roster — Dedicated Roster View
+  @Get(':id/applications/:appId/roster')
+  @Roles(Role.ORGANIZER, Role.ADMIN, Role.ATHLETE, Role.NON_ATHLETE)
+  @ApiOperation({
+    summary: 'View immutable roster lineup for squad application',
+  })
+  getApplicationRoster(
+    @Param('id') tournamentId: string,
+    @Param('appId') appId: string,
+  ) {
+    return this.tournamentsService.getApplicationRoster(tournamentId, appId);
+  }
+
   // POST /tournaments/:id/register — Direct register (Admin/Legacy)
   @Post(':id/register')
   @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
@@ -243,12 +256,31 @@ export class TournamentsController {
     );
   }
 
-  // POST /tournaments/:id/bracket — Admin, Organizer, or Athlete generates the bracket
+  // POST /tournaments/:id/bracket — Admin, Organizer, or Athlete generates the
+  // bracket. Pass randomize: true to draw round 1 at random instead of seeding
+  // it by rating.
   @Post(':id/bracket')
   @Roles(Role.ADMIN, Role.ORGANIZER, Role.ATHLETE)
   @ApiOperation({ summary: 'Generate the tournament bracket' })
-  generateBracket(@Param('id') tournamentId: string) {
-    return this.tournamentsService.generateBracket(tournamentId);
+  generateBracket(
+    @Param('id') tournamentId: string,
+    @Body() body: { randomize?: boolean } = {},
+  ) {
+    return this.tournamentsService.generateBracket(tournamentId, {
+      randomize: body?.randomize === true,
+    });
+  }
+
+  // POST /tournaments/:id/bracket/randomize — Admin or the owning organizer
+  // redraws round 1. Rejected once a round 1 result has been reported.
+  @Post(':id/bracket/randomize')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Randomize the round 1 bracket draw' })
+  randomizeBracket(
+    @Param('id') tournamentId: string,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.randomizeBracket(tournamentId, req.user);
   }
 
   // GET /tournaments/:id/bracket — Anyone can view the bracket
@@ -299,6 +331,125 @@ export class TournamentsController {
       tournamentId,
       matchId,
       closeMatchDto,
+    );
+  }
+
+  // POST /tournaments/:id/matches/:mid/forfeit — 2-step forfeit match
+  @Post(':id/matches/:mid/forfeit')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({
+    summary:
+      'Forfeit match with zero stat attribution and isolated advancement',
+  })
+  forfeitMatch(
+    @Param('id') tournamentId: string,
+    @Param('mid') matchId: string,
+    @Body() body: { forfeitingUniversityId: string },
+  ) {
+    return this.tournamentsService.forfeitMatch(
+      tournamentId,
+      matchId,
+      body.forfeitingUniversityId,
+    );
+  }
+
+  // PATCH /tournaments/:id/matches/:mid/stats — Retroactive stat correction
+  @Patch(':id/matches/:mid/stats')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({
+    summary: 'Retroactively correct OCR player stats for a verified match',
+  })
+  updateMatchStats(
+    @Param('id') tournamentId: string,
+    @Param('mid') matchId: string,
+    @Body()
+    dto: {
+      winnerId?: string;
+      gameDuration?: number;
+      players: Array<{
+        userId?: string;
+        universityId: string;
+        name: string;
+        kills: number;
+        deaths: number;
+        assists: number;
+        combatScore?: number;
+        headshotPct?: number;
+        agentName?: string;
+        extra?: Record<string, any>;
+      }>;
+    },
+  ) {
+    return this.tournamentsService.updateMatchStats(tournamentId, matchId, dto);
+  }
+
+  // GET /tournaments/:id/messages — Get tournament global channel messages
+  @Get(':id/messages')
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @ApiOperation({ summary: 'Get unified tournament global channel messages' })
+  getTournamentMessages(
+    @Param('id') tournamentId: string,
+    @Request() req: { user: { id: string; role?: string } },
+  ) {
+    return this.tournamentsService.getTournamentMessages(
+      tournamentId,
+      req.user,
+    );
+  }
+
+  // POST /tournaments/:id/messages — Send message / announcement
+  @Post(':id/messages')
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @ApiOperation({
+    summary: 'Send message or announcement to tournament global channel',
+  })
+  createTournamentMessage(
+    @Param('id') tournamentId: string,
+    @Body() dto: { text: string; isPinned?: boolean; isAnnouncement?: boolean },
+    @Request()
+    req: { user: { id: string; displayName?: string; role?: string } },
+  ) {
+    return this.tournamentsService.createTournamentMessage(
+      tournamentId,
+      req.user,
+      dto,
+    );
+  }
+
+  // PATCH /tournaments/:id/messages/:mid — Edit message or toggle pinned announcement
+  @Patch(':id/messages/:mid')
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @ApiOperation({
+    summary: 'Edit message or adjust pinned announcement in tournament channel',
+  })
+  updateTournamentMessage(
+    @Param('id') tournamentId: string,
+    @Param('mid') messageId: string,
+    @Body()
+    dto: { text?: string; isPinned?: boolean; isAnnouncement?: boolean },
+    @Request() req: { user: { id: string; role?: string } },
+  ) {
+    return this.tournamentsService.updateTournamentMessage(
+      tournamentId,
+      messageId,
+      req.user,
+      dto,
+    );
+  }
+
+  // DELETE /tournaments/:id/messages/:mid — Delete message
+  @Delete(':id/messages/:mid')
+  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @ApiOperation({ summary: 'Delete message from tournament global channel' })
+  deleteTournamentMessage(
+    @Param('id') tournamentId: string,
+    @Param('mid') messageId: string,
+    @Request() req: { user: { id: string; role?: string } },
+  ) {
+    return this.tournamentsService.deleteTournamentMessage(
+      tournamentId,
+      messageId,
+      req.user,
     );
   }
 
