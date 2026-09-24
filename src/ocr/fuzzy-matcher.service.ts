@@ -143,7 +143,9 @@ export class FuzzyMatcherService {
         const nameScore = this.similarity(rawIgn, c.displayName);
         let aliasScore = 0;
         if (c.aliases && c.aliases.length > 0) {
-          aliasScore = Math.max(...c.aliases.map((a) => this.similarity(rawIgn, a)));
+          aliasScore = Math.max(
+            ...c.aliases.map((a) => this.similarity(rawIgn, a)),
+          );
         }
 
         const maxScore = Math.max(handleScore, nameScore, aliasScore);
@@ -155,7 +157,9 @@ export class FuzzyMatcherService {
       .sort((a, b) => b.confidence - a.confidence);
 
     const top = scored[0];
-    const isHigh = top ? top.confidence >= this.HIGH_CONFIDENCE_THRESHOLD : false;
+    const isHigh = top
+      ? top.confidence >= this.HIGH_CONFIDENCE_THRESHOLD
+      : false;
 
     return {
       rawIgn,

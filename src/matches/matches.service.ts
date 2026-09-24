@@ -10,6 +10,38 @@ export interface GetMatchesQuery {
   matchMode?: 'ALL' | 'TOURNAMENT' | 'SCRIM';
 }
 
+const matchListInclude = {
+  winner: { select: { id: true, name: true } },
+  loser: { select: { id: true, name: true } },
+  tournament: { select: { id: true, name: true, gameTitle: true } },
+  scrim: {
+    select: {
+      id: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          university: { select: { id: true, name: true } },
+        },
+      },
+      opponent: {
+        select: {
+          id: true,
+          name: true,
+          university: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
+  playerStats: {
+    include: { valorantStat: true },
+  },
+} satisfies Prisma.MatchInclude;
+
+type MatchListRow = Prisma.MatchGetPayload<{
+  include: typeof matchListInclude;
+}>;
+
 @Injectable()
 export class MatchesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -45,21 +77,7 @@ export class MatchesService {
         skip,
         take: limit,
         orderBy: [{ playedAt: 'desc' }, { id: 'desc' }],
-        include: {
-          winner: { select: { id: true, name: true } },
-          loser: { select: { id: true, name: true } },
-          tournament: { select: { id: true, name: true, gameTitle: true } },
-          scrim: {
-            select: {
-              id: true,
-              team: { select: { id: true, name: true, university: { select: { id: true, name: true } } } },
-              opponent: { select: { id: true, name: true, university: { select: { id: true, name: true } } } },
-            },
-          },
-          playerStats: {
-            include: { valorantStat: true },
-          },
-        },
+        include: matchListInclude,
       }),
     ]);
 
@@ -74,7 +92,7 @@ export class MatchesService {
     };
   }
 
-  private formatMatchItem(m: any) {
+  private formatMatchItem(m: MatchListRow) {
     const isScrim = m.matchMode === MatchMode.SCRIM;
     let t1Name = 'TBD';
     let t1Code = 'TBD';
@@ -86,12 +104,14 @@ export class MatchesService {
 
     if (isScrim && m.scrim) {
       t1Name = m.scrim.team?.name || m.winner?.name || 'Host Squad';
-      t1Code = m.scrim.team?.university?.name?.slice(0, 4).toUpperCase() || 'HOST';
-      t1Id = m.scrim.team?.university?.id || m.winnerId;
+      t1Code =
+        m.scrim.team?.university?.name?.slice(0, 4).toUpperCase() || 'HOST';
+      t1Id = m.scrim.team?.university?.id || m.winnerId || undefined;
 
       t2Name = m.scrim.opponent?.name || m.loser?.name || 'Challenger';
-      t2Code = m.scrim.opponent?.university?.name?.slice(0, 4).toUpperCase() || 'OPP';
-      t2Id = m.scrim.opponent?.university?.id || m.loserId;
+      t2Code =
+        m.scrim.opponent?.university?.name?.slice(0, 4).toUpperCase() || 'OPP';
+      t2Id = m.scrim.opponent?.university?.id || m.loserId || undefined;
     } else {
       t1Name = m.winner?.name || 'Contender 1';
       t1Code = m.winner?.name ? m.winner.name.slice(0, 4).toUpperCase() : 'TBD';
@@ -107,10 +127,10 @@ export class MatchesService {
       gameTitleStr.includes('lol') || gameTitleStr.includes('league')
         ? 'lol'
         : gameTitleStr.includes('cod')
-        ? 'codm'
-        : gameTitleStr.includes('ml')
-        ? 'ml'
-        : 'valo';
+          ? 'codm'
+          : gameTitleStr.includes('ml')
+            ? 'ml'
+            : 'valo';
 
     return {
       id: m.id,
@@ -122,10 +142,12 @@ export class MatchesService {
       stageName: isScrim
         ? 'Practice Match'
         : m.round === 0
-        ? 'Group Stage'
-        : `Round ${m.round}`,
+          ? 'Group Stage'
+          : `Round ${m.round}`,
       status: m.isVerified ? 'COMPLETED' : 'UPCOMING',
-      timeLabel: m.playedAt ? new Date(m.playedAt).toLocaleDateString() : 'Scheduled',
+      timeLabel: m.playedAt
+        ? new Date(m.playedAt).toLocaleDateString()
+        : 'Scheduled',
       matchMode: m.matchMode,
       isForfeit: m.isForfeit ?? false,
       team1: {

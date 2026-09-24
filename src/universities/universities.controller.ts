@@ -32,7 +32,8 @@ export class UniversitiesController {
   @Public()
   @Get(':id/matches')
   @ApiOperation({
-    summary: "Get a university's verified match history (Tournament and Scrims)",
+    summary:
+      "Get a university's verified match history (Tournament and Scrims)",
   })
   findMatches(
     @Param('id') id: string,

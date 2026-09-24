@@ -7,4 +7,3 @@ import { FuzzyMatcherService } from './fuzzy-matcher.service';
   exports: [OcrService, FuzzyMatcherService],
 })
 export class OcrModule {}
-

@@ -188,7 +188,11 @@ export class RealtimeGateway
         status: TournamentApplicationStatus.APPROVED,
         OR: [
           { userId },
-          { team: { OR: [{ captainId: userId }, { members: { some: { userId } } }] } },
+          {
+            team: {
+              OR: [{ captainId: userId }, { members: { some: { userId } } }],
+            },
+          },
         ],
       },
     });
@@ -231,7 +235,10 @@ export class RealtimeGateway
     const userId = await this.authenticate(client);
     if (!userId || !tournamentId) return;
 
-    const isParticipant = await this.isTournamentParticipant(userId, tournamentId);
+    const isParticipant = await this.isTournamentParticipant(
+      userId,
+      tournamentId,
+    );
     if (!isParticipant) return;
 
     await client.join(tournamentRoom(tournamentId));

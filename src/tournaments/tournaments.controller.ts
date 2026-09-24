@@ -212,7 +212,9 @@ export class TournamentsController {
   // GET /tournaments/:id/applications/:appId/roster — Dedicated Roster View
   @Get(':id/applications/:appId/roster')
   @Roles(Role.ORGANIZER, Role.ADMIN, Role.ATHLETE, Role.NON_ATHLETE)
-  @ApiOperation({ summary: 'View immutable roster lineup for squad application' })
+  @ApiOperation({
+    summary: 'View immutable roster lineup for squad application',
+  })
   getApplicationRoster(
     @Param('id') tournamentId: string,
     @Param('appId') appId: string,
@@ -316,7 +318,10 @@ export class TournamentsController {
   // POST /tournaments/:id/matches/:mid/forfeit — 2-step forfeit match
   @Post(':id/matches/:mid/forfeit')
   @Roles(Role.ADMIN, Role.ORGANIZER)
-  @ApiOperation({ summary: 'Forfeit match with zero stat attribution and isolated advancement' })
+  @ApiOperation({
+    summary:
+      'Forfeit match with zero stat attribution and isolated advancement',
+  })
   forfeitMatch(
     @Param('id') tournamentId: string,
     @Param('mid') matchId: string,
@@ -332,7 +337,9 @@ export class TournamentsController {
   // PATCH /tournaments/:id/matches/:mid/stats — Retroactive stat correction
   @Patch(':id/matches/:mid/stats')
   @Roles(Role.ADMIN, Role.ORGANIZER)
-  @ApiOperation({ summary: 'Retroactively correct OCR player stats for a verified match' })
+  @ApiOperation({
+    summary: 'Retroactively correct OCR player stats for a verified match',
+  })
   updateMatchStats(
     @Param('id') tournamentId: string,
     @Param('mid') matchId: string,
@@ -365,17 +372,23 @@ export class TournamentsController {
     @Param('id') tournamentId: string,
     @Request() req: { user: { id: string; role?: string } },
   ) {
-    return this.tournamentsService.getTournamentMessages(tournamentId, req.user);
+    return this.tournamentsService.getTournamentMessages(
+      tournamentId,
+      req.user,
+    );
   }
 
   // POST /tournaments/:id/messages — Send message / announcement
   @Post(':id/messages')
   @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
-  @ApiOperation({ summary: 'Send message or announcement to tournament global channel' })
+  @ApiOperation({
+    summary: 'Send message or announcement to tournament global channel',
+  })
   createTournamentMessage(
     @Param('id') tournamentId: string,
     @Body() dto: { text: string; isPinned?: boolean; isAnnouncement?: boolean },
-    @Request() req: { user: { id: string; displayName?: string; role?: string } },
+    @Request()
+    req: { user: { id: string; displayName?: string; role?: string } },
   ) {
     return this.tournamentsService.createTournamentMessage(
       tournamentId,
@@ -387,11 +400,14 @@ export class TournamentsController {
   // PATCH /tournaments/:id/messages/:mid — Edit message or toggle pinned announcement
   @Patch(':id/messages/:mid')
   @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
-  @ApiOperation({ summary: 'Edit message or adjust pinned announcement in tournament channel' })
+  @ApiOperation({
+    summary: 'Edit message or adjust pinned announcement in tournament channel',
+  })
   updateTournamentMessage(
     @Param('id') tournamentId: string,
     @Param('mid') messageId: string,
-    @Body() dto: { text?: string; isPinned?: boolean; isAnnouncement?: boolean },
+    @Body()
+    dto: { text?: string; isPinned?: boolean; isAnnouncement?: boolean },
     @Request() req: { user: { id: string; role?: string } },
   ) {
     return this.tournamentsService.updateTournamentMessage(

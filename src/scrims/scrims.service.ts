@@ -11,7 +11,6 @@ import {
   MatchMode,
   NotificationCategory,
   NotificationType,
-  Prisma,
   Role,
   ScrimStatus,
   TeamMemberStatus,
@@ -512,7 +511,8 @@ export class ScrimsService {
     // both universities' ledgers regardless of who submitted it.
     const isHostAthlete = scrim.team.members.some((m) => m.userId === user.id);
     const isOpponentAthlete =
-      !!scrim.opponent && scrim.opponent.members.some((m) => m.userId === user.id);
+      !!scrim.opponent &&
+      scrim.opponent.members.some((m) => m.userId === user.id);
     const isAdmin = user.role === Role.ADMIN || user.role === Role.ORGANIZER;
 
     if (!isHostAthlete && !isOpponentAthlete && !isAdmin) {

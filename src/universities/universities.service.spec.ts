@@ -1,8 +1,24 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { GameTitle } from '@prisma/client';
+import { GameTitle, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UniversitiesService } from './universities.service';
+
+// Narrow shapes for the Prisma call arguments these tests inspect.
+type UniversityFindUniqueCall = {
+  where: Prisma.UniversityWhereUniqueInput;
+  include: { teams: { select: Record<string, unknown> } };
+};
+type MatchFindManyCall = {
+  where: Prisma.MatchWhereInput & { AND: Prisma.MatchWhereInput[] };
+  skip: number;
+  take: number;
+};
+
+// Reads the first argument of a mock's first call. Untyped jest.fn() mocks
+// record calls as any[][], so this is the one typed way in.
+const firstCallArg = <T>(fn: jest.Mock): T =>
+  (fn.mock.calls as unknown[][])[0][0] as T;
 
 const mockPrismaService = {
   university: {
@@ -139,8 +155,9 @@ describe('UniversitiesService', () => {
 
       const result = await service.findOne('1');
 
-      const call = mockPrismaService.university.findUnique.mock
-        .calls[0][0] as Record<string, any>;
+      const call = firstCallArg<UniversityFindUniqueCall>(
+        mockPrismaService.university.findUnique,
+      );
       expect(call.where).toEqual({ id: '1' });
       expect(call.include.teams.select.members).toBeDefined();
       expect(result).toEqual(mockUniversity);
@@ -151,8 +168,9 @@ describe('UniversitiesService', () => {
 
       await service.findOne('1');
 
-      const call = mockPrismaService.university.findUnique.mock
-        .calls[0][0] as Record<string, any>;
+      const call = firstCallArg<UniversityFindUniqueCall>(
+        mockPrismaService.university.findUnique,
+      );
       expect(call.include.teams.select.inviteCode).toBeUndefined();
     });
 
@@ -204,8 +222,12 @@ describe('UniversitiesService', () => {
     it('should report a LOSS and the winning opponent when the university lost', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(university);
       mockPrismaService.match.findMany
-        .mockResolvedValueOnce([{ ...playedMatch, winnerId: 'uni-2', loserId: 'uni-1' }])
-        .mockResolvedValueOnce([{ tournamentId: 'tour-1', round: 2, bracketSide: null }]);
+        .mockResolvedValueOnce([
+          { ...playedMatch, winnerId: 'uni-2', loserId: 'uni-1' },
+        ])
+        .mockResolvedValueOnce([
+          { tournamentId: 'tour-1', round: 2, bracketSide: null },
+        ]);
 
       const { matches: entries } = await service.findMatches('uni-1');
       const entry = entries[0];
@@ -220,8 +242,8 @@ describe('UniversitiesService', () => {
 
       await service.findMatches('uni-1');
 
-      const where = (
-        mockPrismaService.match.findMany.mock.calls[0][0] as Record<string, any>
+      const where = firstCallArg<MatchFindManyCall>(
+        mockPrismaService.match.findMany,
       ).where;
       expect(where.loserId).toEqual({ not: null });
       expect(where.isVerified).toBe(true);
@@ -233,13 +255,13 @@ describe('UniversitiesService', () => {
 
       await service.findMatches('uni-1', GameTitle.VALORANT);
 
-      const where = (
-        mockPrismaService.match.findMany.mock.calls[0][0] as Record<string, any>
+      const where = firstCallArg<MatchFindManyCall>(
+        mockPrismaService.match.findMany,
       ).where;
-      const gameFilter = where.AND.find((clause: any) =>
-        clause.OR?.some((option: any) => option.tournament),
+      const gameFilter = where.AND.find((clause) =>
+        clause.OR?.some((option) => option.tournament),
       );
-      expect(gameFilter.OR).toContainEqual({
+      expect(gameFilter?.OR).toContainEqual({
         tournament: { gameTitle: GameTitle.VALORANT },
       });
       expect(where.title).toBeUndefined();
@@ -251,13 +273,13 @@ describe('UniversitiesService', () => {
 
       await service.findMatches('uni-1', GameTitle.VALORANT, 'SCRIM');
 
-      const where = (
-        mockPrismaService.match.findMany.mock.calls[0][0] as Record<string, any>
+      const where = firstCallArg<MatchFindManyCall>(
+        mockPrismaService.match.findMany,
       ).where;
-      const gameFilter = where.AND.find((clause: any) =>
-        clause.OR?.some((option: any) => option.title),
+      const gameFilter = where.AND.find((clause) =>
+        clause.OR?.some((option) => option.title),
       );
-      expect(gameFilter.OR).toContainEqual({
+      expect(gameFilter?.OR).toContainEqual({
         tournamentId: null,
         title: GameTitle.VALORANT,
       });
@@ -269,12 +291,17 @@ describe('UniversitiesService', () => {
       mockPrismaService.match.count.mockResolvedValue(24);
       mockPrismaService.match.findMany.mockResolvedValue([]);
 
-      const result = await service.findMatches('uni-1', undefined, 'ALL', 3, 10);
+      const result = await service.findMatches(
+        'uni-1',
+        undefined,
+        'ALL',
+        3,
+        10,
+      );
 
-      const call = mockPrismaService.match.findMany.mock.calls[0][0] as Record<
-        string,
-        any
-      >;
+      const call = firstCallArg<MatchFindManyCall>(
+        mockPrismaService.match.findMany,
+      );
       expect(call.skip).toBe(20);
       expect(call.take).toBe(10);
       expect(result.total).toBe(24);
@@ -288,10 +315,9 @@ describe('UniversitiesService', () => {
 
       await service.findMatches('uni-1', undefined, 'ALL', 0, 5000);
 
-      const call = mockPrismaService.match.findMany.mock.calls[0][0] as Record<
-        string,
-        any
-      >;
+      const call = firstCallArg<MatchFindManyCall>(
+        mockPrismaService.match.findMany,
+      );
       expect(call.skip).toBe(0);
       expect(call.take).toBe(50);
     });
@@ -299,14 +325,25 @@ describe('UniversitiesService', () => {
     it('should throw NotFoundException if the university does not exist', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(null);
 
-      await expect(service.findMatches('nope')).rejects.toThrow(NotFoundException);
+      await expect(service.findMatches('nope')).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should expose scrimId on a scrim-mode entry so the scrim page can route back to it for editing', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(university);
       mockPrismaService.match.findMany
-        .mockResolvedValueOnce([{ ...playedMatch, id: 'match-2', scrimId: 'scrim-1', matchMode: 'SCRIM' }])
-        .mockResolvedValueOnce([{ tournamentId: 'tour-1', round: 2, bracketSide: null }]);
+        .mockResolvedValueOnce([
+          {
+            ...playedMatch,
+            id: 'match-2',
+            scrimId: 'scrim-1',
+            matchMode: 'SCRIM',
+          },
+        ])
+        .mockResolvedValueOnce([
+          { tournamentId: 'tour-1', round: 2, bracketSide: null },
+        ]);
 
       const { matches: entries } = await service.findMatches('uni-1');
 
@@ -319,9 +356,33 @@ describe('UniversitiesService', () => {
 
     // An 8-team single-elim tree: rounds 1 (quarters), 2 (semis), 3 (final).
     const bracket = (overrides: Record<string, any>[] = []) => [
-      { round: 1, bracketSide: null, winnerId: 'uni-1', loserId: 'uni-8', isVerified: true, isForfeit: false, playedAt: new Date() },
-      { round: 2, bracketSide: null, winnerId: 'uni-1', loserId: 'uni-4', isVerified: true, isForfeit: false, playedAt: new Date() },
-      { round: 3, bracketSide: null, winnerId: 'uni-1', loserId: 'uni-2', isVerified: true, isForfeit: false, playedAt: new Date() },
+      {
+        round: 1,
+        bracketSide: null,
+        winnerId: 'uni-1',
+        loserId: 'uni-8',
+        isVerified: true,
+        isForfeit: false,
+        playedAt: new Date(),
+      },
+      {
+        round: 2,
+        bracketSide: null,
+        winnerId: 'uni-1',
+        loserId: 'uni-4',
+        isVerified: true,
+        isForfeit: false,
+        playedAt: new Date(),
+      },
+      {
+        round: 3,
+        bracketSide: null,
+        winnerId: 'uni-1',
+        loserId: 'uni-2',
+        isVerified: true,
+        isForfeit: false,
+        playedAt: new Date(),
+      },
       ...overrides,
     ];
 
@@ -358,7 +419,15 @@ describe('UniversitiesService', () => {
     it('should place a squad that lost the final as runner-up', async () => {
       mockTournament([
         ...bracket().slice(0, 2),
-        { round: 3, bracketSide: null, winnerId: 'uni-2', loserId: 'uni-1', isVerified: true, isForfeit: false, playedAt: new Date() },
+        {
+          round: 3,
+          bracketSide: null,
+          winnerId: 'uni-2',
+          loserId: 'uni-1',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
       ]);
 
       const [entry] = await service.findTournamentPlacements('uni-1');
@@ -370,8 +439,24 @@ describe('UniversitiesService', () => {
     it('should place a semifinal exit in the top 4', async () => {
       mockTournament([
         bracket()[0],
-        { round: 2, bracketSide: null, winnerId: 'uni-4', loserId: 'uni-1', isVerified: true, isForfeit: false, playedAt: new Date() },
-        { round: 3, bracketSide: null, winnerId: 'uni-4', loserId: 'uni-2', isVerified: true, isForfeit: false, playedAt: new Date() },
+        {
+          round: 2,
+          bracketSide: null,
+          winnerId: 'uni-4',
+          loserId: 'uni-1',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
+        {
+          round: 3,
+          bracketSide: null,
+          winnerId: 'uni-4',
+          loserId: 'uni-2',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
       ]);
 
       const [entry] = await service.findTournamentPlacements('uni-1');
@@ -382,7 +467,15 @@ describe('UniversitiesService', () => {
 
     it('should place a quarterfinal exit in the top 8', async () => {
       mockTournament([
-        { round: 1, bracketSide: null, winnerId: 'uni-8', loserId: 'uni-1', isVerified: true, isForfeit: false, playedAt: new Date() },
+        {
+          round: 1,
+          bracketSide: null,
+          winnerId: 'uni-8',
+          loserId: 'uni-1',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
         bracket()[1],
         bracket()[2],
       ]);
@@ -396,9 +489,25 @@ describe('UniversitiesService', () => {
     it('should not crown a squad while its bracket is still being played', async () => {
       mockTournament(
         [
-          { round: 1, bracketSide: null, winnerId: 'uni-1', loserId: 'uni-8', isVerified: true, isForfeit: false, playedAt: new Date() },
+          {
+            round: 1,
+            bracketSide: null,
+            winnerId: 'uni-1',
+            loserId: 'uni-8',
+            isVerified: true,
+            isForfeit: false,
+            playedAt: new Date(),
+          },
           // The final is seeded but unplayed, so nobody has won this bracket.
-          { round: 2, bracketSide: null, winnerId: 'uni-1', loserId: 'uni-4', isVerified: false, isForfeit: false, playedAt: new Date() },
+          {
+            round: 2,
+            bracketSide: null,
+            winnerId: 'uni-1',
+            loserId: 'uni-4',
+            isVerified: false,
+            isForfeit: false,
+            playedAt: new Date(),
+          },
         ],
         'ONGOING',
       );
@@ -411,10 +520,42 @@ describe('UniversitiesService', () => {
 
     it('should not treat a winners-bracket loss as an exit in double elimination', async () => {
       mockTournament([
-        { round: 1, bracketSide: 'WINNERS', winnerId: 'uni-2', loserId: 'uni-1', isVerified: true, isForfeit: false, playedAt: new Date() },
-        { round: 1, bracketSide: 'LOSERS', winnerId: 'uni-1', loserId: 'uni-3', isVerified: true, isForfeit: false, playedAt: new Date() },
-        { round: 2, bracketSide: 'LOSERS', winnerId: 'uni-1', loserId: 'uni-4', isVerified: true, isForfeit: false, playedAt: new Date() },
-        { round: 3, bracketSide: 'GRAND_FINAL', winnerId: 'uni-1', loserId: 'uni-2', isVerified: true, isForfeit: false, playedAt: new Date() },
+        {
+          round: 1,
+          bracketSide: 'WINNERS',
+          winnerId: 'uni-2',
+          loserId: 'uni-1',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
+        {
+          round: 1,
+          bracketSide: 'LOSERS',
+          winnerId: 'uni-1',
+          loserId: 'uni-3',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
+        {
+          round: 2,
+          bracketSide: 'LOSERS',
+          winnerId: 'uni-1',
+          loserId: 'uni-4',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
+        {
+          round: 3,
+          bracketSide: 'GRAND_FINAL',
+          winnerId: 'uni-1',
+          loserId: 'uni-2',
+          isVerified: true,
+          isForfeit: false,
+          playedAt: new Date(),
+        },
       ]);
 
       const [entry] = await service.findTournamentPlacements('uni-1');

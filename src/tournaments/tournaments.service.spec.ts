@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BracketSide, TournamentStatus, GameTitle, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +12,11 @@ import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { TournamentsService } from './tournaments.service';
+
+// Reads the first argument of a mock's first call. Untyped jest.fn() mocks
+// record calls as any[][], so this is the one typed way in.
+const firstCallArg = <T>(fn: jest.Mock): T =>
+  (fn.mock.calls as unknown[][])[0][0] as T;
 
 // MOCK FACTORIES
 // We never hit a real database in unit tests. We mock PrismaService
@@ -59,7 +68,11 @@ const mockPrismaService = {
     update: jest.fn(),
     delete: jest.fn(),
   },
-  $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(mockPrismaService)),
+  // Explicit return type breaks the self-reference that would otherwise make
+  // TypeScript infer the whole mock object as `any`.
+  $transaction: jest.fn((cb: (tx: unknown) => unknown): unknown =>
+    cb(mockPrismaService),
+  ),
 };
 
 const mockNotificationsService = {
@@ -574,9 +587,9 @@ describe('TournamentsService', () => {
       expect(data.filter((m) => m.round === 3)).toHaveLength(1);
 
       // Round 1 is fully drawn, later rounds are empty TBD slots.
-      expect(
-        data.filter((m) => m.round === 1).every((m) => !!m.winnerId),
-      ).toBe(true);
+      expect(data.filter((m) => m.round === 1).every((m) => !!m.winnerId)).toBe(
+        true,
+      );
       expect(data.filter((m) => m.round > 1).every((m) => !m.winnerId)).toBe(
         true,
       );
@@ -1194,7 +1207,9 @@ describe('TournamentsService', () => {
 
       expect(res.teamId).toBe('team-1');
       expect(res.status).toBe('PENDING');
-      expect(mockPrismaService.tournamentApplication.upsert).toHaveBeenCalledTimes(1);
+      expect(
+        mockPrismaService.tournamentApplication.upsert,
+      ).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1266,7 +1281,10 @@ describe('TournamentsService', () => {
       mockPrismaService.tournamentApplication.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.getTournamentMessages('t1', { id: 'outsider-1', role: Role.ATHLETE }),
+        service.getTournamentMessages('t1', {
+          id: 'outsider-1',
+          role: Role.ATHLETE,
+        }),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -1298,7 +1316,11 @@ describe('TournamentsService', () => {
       await expect(
         service.createTournamentMessage(
           't1',
-          { id: 'outsider-1', displayName: 'Random Athlete', role: Role.ATHLETE },
+          {
+            id: 'outsider-1',
+            displayName: 'Random Athlete',
+            role: Role.ATHLETE,
+          },
           { text: 'Can I sneak in?' },
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -1357,18 +1379,23 @@ describe('TournamentsService', () => {
 
       const res = await service.createTournamentMessage(
         't1',
-        { id: 'org-1', displayName: 'Tournament Director', role: Role.ORGANIZER },
-        { text: 'Bracket matches will begin at 2:00 PM!', isPinned: true, isAnnouncement: true },
+        {
+          id: 'org-1',
+          displayName: 'Tournament Director',
+          role: Role.ORGANIZER,
+        },
+        {
+          text: 'Bracket matches will begin at 2:00 PM!',
+          isPinned: true,
+          isAnnouncement: true,
+        },
       );
 
-      expect(mockPrismaService.tournamentChatMessage.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            isPinned: true,
-            isAnnouncement: true,
-          }),
-        }),
-      );
+      expect(
+        firstCallArg<object>(mockPrismaService.tournamentChatMessage.create),
+      ).toMatchObject({
+        data: { isPinned: true, isAnnouncement: true },
+      });
       expect(res.isPinned).toBe(true);
     });
   });

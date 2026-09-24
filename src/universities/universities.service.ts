@@ -10,6 +10,7 @@ import {
   BracketSide,
   GameTitle,
   MatchMode,
+  Prisma,
   TeamMemberStatus,
 } from '@prisma/client';
 
@@ -171,10 +172,13 @@ export class UniversitiesService {
       throw new NotFoundException('University not found.');
     }
 
-    const where: any = {
+    const conditions: Prisma.MatchWhereInput[] = [
+      { OR: [{ winnerId: id }, { loserId: id }] },
+    ];
+    const where: Prisma.MatchWhereInput = {
       isVerified: true,
       loserId: { not: null },
-      AND: [{ OR: [{ winnerId: id }, { loserId: id }] }],
+      AND: conditions,
     };
 
     if (matchMode && matchMode !== 'ALL') {
@@ -188,7 +192,7 @@ export class UniversitiesService {
     // Match.title - matching through the relation alone would silently drop
     // every scrim from the ledger.
     if (gameTitle) {
-      where.AND.push({
+      conditions.push({
         OR: [
           { tournament: { gameTitle } },
           { tournamentId: null, title: gameTitle },
@@ -365,9 +369,9 @@ export class UniversitiesService {
           )
         : bracketMatches;
 
-      const rounds = [
-        ...new Set(eliminationMatches.map((m) => m.round)),
-      ].sort((a, b) => a - b);
+      const rounds = [...new Set(eliminationMatches.map((m) => m.round))].sort(
+        (a, b) => a - b,
+      );
 
       // A pending match holds both contestants in winnerId/loserId, so only a
       // verified match says anything about who actually won or lost.

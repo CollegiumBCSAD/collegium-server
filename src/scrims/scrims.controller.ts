@@ -81,7 +81,9 @@ export class ScrimsController {
 
   @Post(':id/scan')
   @UseInterceptors(FileInterceptor('image', { storage: memoryStorage() }))
-  @ApiOperation({ summary: 'Mandatory pre-close OCR scoreboard scan for scrim' })
+  @ApiOperation({
+    summary: 'Mandatory pre-close OCR scoreboard scan for scrim',
+  })
   scanScrim(
     @Param('id') id: string,
     @UploadedFile() image?: Express.Multer.File,
@@ -90,7 +92,9 @@ export class ScrimsController {
   }
 
   @Post(':id/finalize')
-  @ApiOperation({ summary: 'Finalize scrim match log and sync into dedicated ledger' })
+  @ApiOperation({
+    summary: 'Finalize scrim match log and sync into dedicated ledger',
+  })
   finalizeScrim(
     @Req() req: { user: User },
     @Param('id') id: string,

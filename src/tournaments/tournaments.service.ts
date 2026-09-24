@@ -52,8 +52,24 @@ export interface TournamentApplication {
   appliedAt: Date;
   teamId?: string;
   teamName?: string;
-  rosterSnapshot?: any;
+  rosterSnapshot?: Prisma.JsonValue;
 }
+
+// Frozen copy of a squad's roster, stored on the application as JSON.
+// A type alias (not an interface) so it stays assignable to Prisma's JSON input.
+type RosterSnapshotEntry = {
+  userId: string;
+  displayName: string;
+  gameHandle: string;
+  studentId: string;
+  role: string;
+  isCaptain: boolean;
+  eligibilityStatus: string;
+};
+
+type RosterTeam = Prisma.TeamGetPayload<{
+  include: { captain: true; members: { include: { user: true } } };
+}>;
 
 type ApplicationRow = {
   id: string;
@@ -64,7 +80,7 @@ type ApplicationRow = {
   status: TournamentApplicationStatus;
   teamId: string;
   teamName: string | null;
-  rosterSnapshot?: any;
+  rosterSnapshot?: Prisma.JsonValue;
   appliedAt: Date;
   university?: { name: string } | null;
   team?: { name: string } | null;
@@ -567,7 +583,10 @@ export class TournamentsService {
         tournamentId,
         universityId: team.universityId,
         userId: user.id,
-        applicantName: user.displayName || team.captain?.displayName || 'Athletic Representative',
+        applicantName:
+          user.displayName ||
+          team.captain?.displayName ||
+          'Athletic Representative',
         teamId: team.id,
         teamName: resolvedTeamName || team.name,
         status: TournamentApplicationStatus.PENDING,
@@ -575,7 +594,10 @@ export class TournamentsService {
       },
       update: {
         userId: user.id,
-        applicantName: user.displayName || team.captain?.displayName || 'Athletic Representative',
+        applicantName:
+          user.displayName ||
+          team.captain?.displayName ||
+          'Athletic Representative',
         teamName: resolvedTeamName || team.name,
         status: TournamentApplicationStatus.PENDING,
         rosterSnapshot,
@@ -589,18 +611,23 @@ export class TournamentsService {
     return this.mapApplication(app);
   }
 
-  private buildRosterSnapshot(team: any) {
-    const members = (team.members || []).map((m: any, idx: number) => ({
-      userId: m.userId,
-      displayName: m.user?.displayName || m.gameHandle,
-      gameHandle: m.gameHandle,
-      studentId: m.user?.id ? `ID-${m.user.id.slice(0, 8).toUpperCase()}` : `STU-${idx + 1}`,
-      role: m.preferredRole || (idx < 5 ? 'Starter' : 'Substitute'),
-      isCaptain: m.userId === team.captainId,
-      eligibilityStatus: m.user?.status === 'ACTIVE' ? 'ELIGIBLE' : 'ACTIVE_ATHLETE',
-    }));
+  private buildRosterSnapshot(team: RosterTeam): RosterSnapshotEntry[] {
+    const members = team.members.map(
+      (m, idx): RosterSnapshotEntry => ({
+        userId: m.userId,
+        displayName: m.user?.displayName || m.gameHandle,
+        gameHandle: m.gameHandle,
+        studentId: m.user?.id
+          ? `ID-${m.user.id.slice(0, 8).toUpperCase()}`
+          : `STU-${idx + 1}`,
+        role: m.preferredRole || (idx < 5 ? 'Starter' : 'Substitute'),
+        isCaptain: m.userId === team.captainId,
+        eligibilityStatus:
+          m.user?.status === 'ACTIVE' ? 'ELIGIBLE' : 'ACTIVE_ATHLETE',
+      }),
+    );
 
-    if (!members.some((m: any) => m.userId === team.captainId) && team.captain) {
+    if (!members.some((m) => m.userId === team.captainId) && team.captain) {
       members.unshift({
         userId: team.captainId,
         displayName: team.captain.displayName || 'Captain',
@@ -631,11 +658,13 @@ export class TournamentsService {
     });
 
     const snapshot =
-      app.rosterSnapshot && Array.isArray(app.rosterSnapshot) && app.rosterSnapshot.length > 0
+      app.rosterSnapshot &&
+      Array.isArray(app.rosterSnapshot) &&
+      app.rosterSnapshot.length > 0
         ? app.rosterSnapshot
         : team
-        ? this.buildRosterSnapshot(team)
-        : [];
+          ? this.buildRosterSnapshot(team)
+          : [];
 
     return {
       applicationId: app.id,
@@ -658,7 +687,11 @@ export class TournamentsService {
         tournamentId,
         OR: [
           { userId },
-          { team: { OR: [{ captainId: userId }, { members: { some: { userId } } }] } },
+          {
+            team: {
+              OR: [{ captainId: userId }, { members: { some: { userId } } }],
+            },
+          },
         ],
       },
     });
@@ -714,7 +747,10 @@ export class TournamentsService {
   private async findApplication(tournamentId: string, applicationId: string) {
     const byId = await this.prisma.tournamentApplication.findFirst({
       where: { id: applicationId, tournamentId },
-      include: { university: { select: { name: true } }, team: { select: { name: true } } },
+      include: {
+        university: { select: { name: true } },
+        team: { select: { name: true } },
+      },
     });
     if (byId) return byId;
 
@@ -723,7 +759,10 @@ export class TournamentsService {
         tournamentId,
         OR: [{ universityId: applicationId }, { teamId: applicationId }],
       },
-      include: { university: { select: { name: true } }, team: { select: { name: true } } },
+      include: {
+        university: { select: { name: true } },
+        team: { select: { name: true } },
+      },
     });
   }
 
@@ -1820,14 +1859,21 @@ export class TournamentsService {
   // Only athletes on a team APPROVED into this tournament, or the
   // organizer/an admin, may read or post in its global channel — the
   // channel is a per-tournament space for participants, not a public forum.
-  private async findTournamentParticipation(tournamentId: string, userId: string) {
+  private async findTournamentParticipation(
+    tournamentId: string,
+    userId: string,
+  ) {
     return this.prisma.tournamentApplication.findFirst({
       where: {
         tournamentId,
         status: TournamentApplicationStatus.APPROVED,
         OR: [
           { userId },
-          { team: { OR: [{ captainId: userId }, { members: { some: { userId } } }] } },
+          {
+            team: {
+              OR: [{ captainId: userId }, { members: { some: { userId } } }],
+            },
+          },
         ],
       },
     });
@@ -1885,7 +1931,10 @@ export class TournamentsService {
       user.role === Role.ADMIN;
 
     // Fetch team name for the user if they belong to a squad in this tournament
-    const userApp = await this.findTournamentParticipation(tournamentId, user.id);
+    const userApp = await this.findTournamentParticipation(
+      tournamentId,
+      user.id,
+    );
 
     if (!isOrganizer && !userApp) {
       throw new ForbiddenException(
@@ -1905,7 +1954,11 @@ export class TournamentsService {
       },
     });
 
-    this.realtimeGateway.emitToTournament(tournamentId, 'tournament:new_message', msg);
+    this.realtimeGateway.emitToTournament(
+      tournamentId,
+      'tournament:new_message',
+      msg,
+    );
     return msg;
   }
 
@@ -1929,19 +1982,29 @@ export class TournamentsService {
       user.role === Role.ADMIN;
 
     if (!isOrganizer && msg.senderId !== user.id) {
-      throw new ForbiddenException('You do not have permission to edit this message');
+      throw new ForbiddenException(
+        'You do not have permission to edit this message',
+      );
     }
 
     const updated = await this.prisma.tournamentChatMessage.update({
       where: { id: messageId },
       data: {
         ...(dto.text !== undefined ? { text: dto.text } : {}),
-        ...(isOrganizer && dto.isPinned !== undefined ? { isPinned: dto.isPinned } : {}),
-        ...(isOrganizer && dto.isAnnouncement !== undefined ? { isAnnouncement: dto.isAnnouncement } : {}),
+        ...(isOrganizer && dto.isPinned !== undefined
+          ? { isPinned: dto.isPinned }
+          : {}),
+        ...(isOrganizer && dto.isAnnouncement !== undefined
+          ? { isAnnouncement: dto.isAnnouncement }
+          : {}),
       },
     });
 
-    this.realtimeGateway.emitToTournament(tournamentId, 'tournament:message_updated', updated);
+    this.realtimeGateway.emitToTournament(
+      tournamentId,
+      'tournament:message_updated',
+      updated,
+    );
     return updated;
   }
 
@@ -1964,16 +2027,22 @@ export class TournamentsService {
       user.role === Role.ADMIN;
 
     if (!isOrganizer && msg.senderId !== user.id) {
-      throw new ForbiddenException('You do not have permission to delete this message');
+      throw new ForbiddenException(
+        'You do not have permission to delete this message',
+      );
     }
 
     await this.prisma.tournamentChatMessage.delete({
       where: { id: messageId },
     });
 
-    this.realtimeGateway.emitToTournament(tournamentId, 'tournament:message_deleted', {
-      messageId,
-    });
+    this.realtimeGateway.emitToTournament(
+      tournamentId,
+      'tournament:message_deleted',
+      {
+        messageId,
+      },
+    );
     return { success: true };
   }
 
