@@ -13,7 +13,6 @@ import {
   HttpStatus,
   UnauthorizedException,
   UseInterceptors,
-  UploadedFile,
   UploadedFiles,
 } from '@nestjs/common';
 import {
@@ -23,10 +22,7 @@ import {
   ApiCookieAuth,
   ApiConsumes,
 } from '@nestjs/swagger';
-import {
-  FileInterceptor,
-  FileFieldsInterceptor,
-} from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type * as express from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -278,9 +274,12 @@ export class AuthController {
     const transforms = body
       ? {
           zoom: body.zoom !== undefined ? Number(body.zoom) : undefined,
-          offsetX: body.offsetX !== undefined ? Number(body.offsetX) : undefined,
-          offsetY: body.offsetY !== undefined ? Number(body.offsetY) : undefined,
-          rotation: body.rotation !== undefined ? Number(body.rotation) : undefined,
+          offsetX:
+            body.offsetX !== undefined ? Number(body.offsetX) : undefined,
+          offsetY:
+            body.offsetY !== undefined ? Number(body.offsetY) : undefined,
+          rotation:
+            body.rotation !== undefined ? Number(body.rotation) : undefined,
         }
       : undefined;
 
