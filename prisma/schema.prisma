@@ -126,6 +126,7 @@ model User {
   organizedTournaments Tournament[] @relation("TournamentOrganizer")
   tournamentApplications TournamentApplication[]
   gameHandles    UserGameHandle[]
+  newsArticles   NewsArticle[]
   createdAt      DateTime       @default(now())
 }
 
@@ -420,3 +421,37 @@ model UserGameHandle {
   @@unique([userId, gameTitle])
 }
 
+enum NewsCategory {
+  TOURNAMENT_CIRCUIT
+  TACTICAL_META
+  RULESET_PATCH
+  ATHLETE_SPOTLIGHT
+  CIRCUIT_ANNOUNCEMENT
+  COMMUNITY_MILESTONE
+}
+
+enum NewsStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model NewsArticle {
+  id            String       @id @default(uuid())
+  title         String
+  excerpt       String
+  body          String
+  category      NewsCategory
+  gameTitle     GameTitle?
+  status        NewsStatus   @default(DRAFT)
+  isFeatured    Boolean      @default(false)
+  image         String?
+  imagePublicId String?
+  authorId      String
+  author        User         @relation(fields: [authorId], references: [id])
+  publishedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([gameTitle, status])
+}

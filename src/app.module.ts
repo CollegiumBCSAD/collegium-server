@@ -11,6 +11,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { RankingModule } from './ranking/ranking.module';
 import { MatchesModule } from './matches/matches.module';
 import { AthletesModule } from './athletes/athletes.module';
+import { NewsModule } from './news/news.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import KeyvRedis from '@keyv/redis';
 
@@ -37,6 +38,7 @@ import KeyvRedis from '@keyv/redis';
     RankingModule,
     MatchesModule,
     AthletesModule,
+    NewsModule,
   ],
   controllers: [AppController],
   providers: [],
