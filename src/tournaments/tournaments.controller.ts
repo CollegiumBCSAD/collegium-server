@@ -116,11 +116,7 @@ export class TournamentsController {
     @Body() updateStreamDto: UpdateStreamDto,
     @Request() req: { user: { id: string; role: Role } },
   ) {
-    return this.tournamentsService.updateStream(
-      id,
-      updateStreamDto,
-      req.user,
-    );
+    return this.tournamentsService.updateStream(id, updateStreamDto, req.user);
   }
 
   // POST /tournaments/:id/start — Organizer or Admin starts upcoming tournament (sets status to ONGOING/LIVE)

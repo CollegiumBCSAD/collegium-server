@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateGameHandleDto } from './dto/update-game-handle.dto';
@@ -30,6 +31,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   private async resolveUniversity(domain: string) {
@@ -348,6 +350,12 @@ export class AuthService {
         id: true,
         email: true,
         displayName: true,
+        avatar: true,
+        avatarOriginal: true,
+        avatarZoom: true,
+        avatarOffsetX: true,
+        avatarOffsetY: true,
+        avatarRotation: true,
         role: true,
         status: true,
         universityId: true,
@@ -390,6 +398,178 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async uploadAvatar(
+    userId: string,
+    file?: Express.Multer.File,
+    originalFile?: Express.Multer.File,
+    transforms?: {
+      zoom?: number;
+      offsetX?: number;
+      offsetY?: number;
+      rotation?: number;
+    },
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const primaryFile = file || originalFile;
+    if (!primaryFile || !primaryFile.buffer) {
+      throw new BadRequestException('No image file provided');
+    }
+
+    // Clean up previous cropped avatar Cloudinary asset if one was assigned
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete old avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const uploadResult = await this.cloudinaryService.upload(
+      primaryFile.buffer,
+      'collegium/avatars',
+    );
+
+    let originalUrl = user.avatarOriginal;
+    let originalPublicId = user.avatarOriginalPublicId;
+
+    if (originalFile && originalFile.buffer) {
+      if (
+        user.avatarOriginalPublicId &&
+        user.avatarOriginalPublicId !== user.avatarPublicId
+      ) {
+        try {
+          await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
+        } catch (err) {
+          this.logger.warn(
+            `Failed to delete old original avatar ${user.avatarOriginalPublicId}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      const origResult = await this.cloudinaryService.upload(
+        originalFile.buffer,
+        'collegium/avatars/originals',
+      );
+      originalUrl = origResult.url;
+      originalPublicId = origResult.publicId;
+    } else if (!user.avatarOriginal) {
+      originalUrl = uploadResult.url;
+      originalPublicId = uploadResult.publicId;
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: uploadResult.url,
+        avatarPublicId: uploadResult.publicId,
+        avatarOriginal: originalUrl,
+        avatarOriginalPublicId: originalPublicId,
+        avatarZoom: transforms?.zoom ?? user.avatarZoom ?? 1.0,
+        avatarOffsetX: transforms?.offsetX ?? user.avatarOffsetX ?? 0,
+        avatarOffsetY: transforms?.offsetY ?? user.avatarOffsetY ?? 0,
+        avatarRotation: transforms?.rotation ?? user.avatarRotation ?? 0,
+      },
+      select: {
+        id: true,
+        avatar: true,
+        avatarOriginal: true,
+        avatarZoom: true,
+        avatarOffsetX: true,
+        avatarOffsetY: true,
+        avatarRotation: true,
+      },
+    });
+
+    return updated;
+  }
+
+  async removeAvatar(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (
+      user.avatarOriginalPublicId &&
+      user.avatarOriginalPublicId !== user.avatarPublicId
+    ) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarOriginalPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete original avatar ${user.avatarOriginalPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: null,
+        avatarPublicId: null,
+        avatarOriginal: null,
+        avatarOriginalPublicId: null,
+        avatarZoom: 1.0,
+        avatarOffsetX: 0,
+        avatarOffsetY: 0,
+        avatarRotation: 0,
+      },
+    });
+
+    return { message: 'Avatar removed successfully' };
+  }
+
+  async setPresetAvatar(userId: string, avatarUrl: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!avatarUrl || typeof avatarUrl !== 'string') {
+      throw new BadRequestException('Invalid avatar URL');
+    }
+
+    if (user.avatarPublicId) {
+      try {
+        await this.cloudinaryService.destroy(user.avatarPublicId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to delete old avatar ${user.avatarPublicId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        avatar: avatarUrl.trim(),
+        avatarPublicId: null,
+      },
+      select: {
+        id: true,
+        avatar: true,
+      },
+    });
+
+    return updated;
   }
 
   async updateGameHandle(userId: string, dto: UpdateGameHandleDto) {
@@ -443,6 +623,7 @@ export class AuthService {
         id: true,
         email: true,
         displayName: true,
+        avatar: true,
         role: true,
         status: true,
         createdAt: true,

@@ -11,6 +11,7 @@ import { AccountStatus, GameTitle, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { AuthService } from './auth.service';
 
 jest.mock('bcrypt');
@@ -22,6 +23,11 @@ jest.mock('crypto', () => ({
     digest: jest.fn((): string => 'mocked_token_hash'),
   })),
 }));
+
+const mockCloudinaryService = {
+  upload: jest.fn(),
+  destroy: jest.fn(),
+};
 
 const mockPrismaService = {
   university: {
@@ -77,6 +83,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: EmailService, useValue: mockEmailService },
+        { provide: CloudinaryService, useValue: mockCloudinaryService },
       ],
     }).compile();
 
@@ -631,6 +638,136 @@ describe('AuthService', () => {
           handle: 'TenZ#NA1',
         }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('uploadAvatar()', () => {
+    it('uploads an image to Cloudinary and updates user profile avatar', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        avatarPublicId: 'old-avatar-id',
+      });
+      mockCloudinaryService.destroy.mockResolvedValue({});
+      mockCloudinaryService.upload.mockResolvedValue({
+        url: 'https://res.cloudinary.com/collegium/avatars/new.png',
+        publicId: 'new-avatar-id',
+      });
+      mockPrismaService.user.update.mockResolvedValue({
+        id: 'user-1',
+        avatar: 'https://res.cloudinary.com/collegium/avatars/new.png',
+      });
+
+      const fakeFile = {
+        buffer: Buffer.from('fake-image-bytes'),
+      } as Express.Multer.File;
+
+      const result = await service.uploadAvatar('user-1', fakeFile);
+
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'old-avatar-id',
+      );
+      expect(mockCloudinaryService.upload).toHaveBeenCalledWith(
+        fakeFile.buffer,
+        'collegium/avatars',
+      );
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          avatar: 'https://res.cloudinary.com/collegium/avatars/new.png',
+          avatarPublicId: 'new-avatar-id',
+          avatarOriginal:
+            'https://res.cloudinary.com/collegium/avatars/new.png',
+          avatarOriginalPublicId: 'new-avatar-id',
+          avatarZoom: 1,
+          avatarOffsetX: 0,
+          avatarOffsetY: 0,
+          avatarRotation: 0,
+        },
+        select: {
+          id: true,
+          avatar: true,
+          avatarOriginal: true,
+          avatarZoom: true,
+          avatarOffsetX: true,
+          avatarOffsetY: true,
+          avatarRotation: true,
+        },
+      });
+      expect(result.avatar).toBe(
+        'https://res.cloudinary.com/collegium/avatars/new.png',
+      );
+    });
+
+    it('throws BadRequestException if no file is provided', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-1' });
+      await expect(
+        service.uploadAvatar(
+          'user-1',
+          undefined as unknown as Express.Multer.File,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('removeAvatar()', () => {
+    it('destroys Cloudinary asset and clears user avatar', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        avatarPublicId: 'existing-id',
+        avatarOriginalPublicId: 'existing-id',
+      });
+      mockCloudinaryService.destroy.mockResolvedValue({});
+      mockPrismaService.user.update.mockResolvedValue({ id: 'user-1' });
+
+      const result = await service.removeAvatar('user-1');
+
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith('existing-id');
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          avatar: null,
+          avatarPublicId: null,
+          avatarOriginal: null,
+          avatarOriginalPublicId: null,
+          avatarZoom: 1,
+          avatarOffsetX: 0,
+          avatarOffsetY: 0,
+          avatarRotation: 0,
+        },
+      });
+      expect(result.message).toBe('Avatar removed successfully');
+    });
+  });
+
+  describe('setPresetAvatar()', () => {
+    it('sets a preset avatar URL and cleans up any old custom avatar', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        avatarPublicId: 'old-custom-id',
+      });
+      mockCloudinaryService.destroy.mockResolvedValue({});
+      mockPrismaService.user.update.mockResolvedValue({
+        id: 'user-1',
+        avatar: '/avatars/presets/preset-1.svg',
+      });
+
+      const result = await service.setPresetAvatar(
+        'user-1',
+        '/avatars/presets/preset-1.svg',
+      );
+
+      expect(mockCloudinaryService.destroy).toHaveBeenCalledWith(
+        'old-custom-id',
+      );
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          avatar: '/avatars/presets/preset-1.svg',
+          avatarPublicId: null,
+        },
+        select: { id: true, avatar: true },
+      });
+      expect(result.avatar).toBe('/avatars/presets/preset-1.svg');
     });
   });
 });
