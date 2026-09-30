@@ -27,6 +27,7 @@ import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { TournamentsService } from './tournaments.service';
+import { StandingsService } from './standings.service';
 
 const IMAGE_UPLOAD_OPTIONS = {
   storage: memoryStorage(),
@@ -49,7 +50,10 @@ const IMAGE_UPLOAD_OPTIONS = {
 @ApiBearerAuth() // This indicates that the endpoints require authentication
 @Controller('tournaments')
 export class TournamentsController {
-  constructor(private readonly tournamentsService: TournamentsService) {}
+  constructor(
+    private readonly tournamentsService: TournamentsService,
+    private readonly standingsService: StandingsService,
+  ) {}
 
   // GET /tournaments — Anyone can list all public tournaments (optionally filtered by status)
   @Public()
@@ -57,6 +61,17 @@ export class TournamentsController {
   @ApiOperation({ summary: 'List all tournaments' })
   findAll(@Query('status') status?: TournamentStatus) {
     return this.tournamentsService.findAll(status);
+  }
+
+  // GET /tournaments/:id/standings — Round-robin group table, publicly viewable
+  // alongside the bracket it seeds.
+  @Public()
+  @Get(':id/standings')
+  @ApiOperation({
+    summary: 'Get the round-robin standings table for a tournament',
+  })
+  getStandings(@Param('id') tournamentId: string) {
+    return this.standingsService.computeStandings(tournamentId);
   }
 
   // GET /tournaments/mine — Organizer views their own tournaments, any status

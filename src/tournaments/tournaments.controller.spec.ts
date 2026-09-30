@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TournamentsController } from './tournaments.controller';
 import { TournamentsService } from './tournaments.service';
+import { StandingsService } from './standings.service';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
 
 describe('TournamentsController', () => {
@@ -22,6 +23,10 @@ describe('TournamentsController', () => {
             getBracket: jest.fn(),
             closeMatch: jest.fn(),
           },
+        },
+        {
+          provide: StandingsService,
+          useValue: { computeStandings: jest.fn() },
         },
       ],
     }).compile();

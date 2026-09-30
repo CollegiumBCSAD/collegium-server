@@ -7,6 +7,7 @@ import { RankingModule } from '../ranking/ranking.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { TournamentsController } from './tournaments.controller';
 import { TournamentsService } from './tournaments.service';
+import { StandingsService } from './standings.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { TournamentsService } from './tournaments.service';
     RealtimeModule,
   ],
   controllers: [TournamentsController],
-  providers: [TournamentsService],
-  exports: [TournamentsService],
+  providers: [TournamentsService, StandingsService],
+  exports: [TournamentsService, StandingsService],
 })
 export class TournamentsModule {}
