@@ -1715,8 +1715,17 @@ export class TournamentsService {
 
     // 2. Advance the losers bracket per the precomputed schedule.
     const schedule = this.losersBracketSchedule(wbRoundsCount);
+    // The schedule above grows with the winners bracket, so its length is only
+    // final once the last WB round exists. Size the tiers off the round-1 field
+    // instead, which is fixed from the moment the bracket is drawn - otherwise
+    // the lower bracket's opening round is mistaken for its final.
+    const wbRound1Matches = wbByRound(1).length;
+    const lbTotalRounds =
+      wbRound1Matches > 0
+        ? this.losersBracketSchedule(Math.log2(wbRound1Matches * 2)).length
+        : schedule.length;
     const lbTier = (round: number): SeriesTier =>
-      round >= schedule.length ? 'LATE' : 'EARLY';
+      round >= lbTotalRounds ? 'LATE' : 'EARLY';
     const lbRoundsDone = Math.max(0, ...lb.map((m) => m.round));
     let lbChampion: string | null = null;
 
