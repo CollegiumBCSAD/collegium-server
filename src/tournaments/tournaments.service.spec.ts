@@ -7,6 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   BracketFormat,
   BracketSide,
+  MatchGameMode,
   TournamentStatus,
   GameTitle,
   Role,
@@ -54,6 +55,9 @@ const mockPrismaService = {
   playerStat: {
     createMany: jest.fn(),
     deleteMany: jest.fn(),
+  },
+  matchGame: {
+    create: jest.fn(),
   },
   team: {
     findMany: jest.fn(),
@@ -1145,6 +1149,142 @@ describe('TournamentsService', () => {
   });
 
   // Squad-level application & validation
+  describe('closeMatch() per-map series', () => {
+    const tournamentId = 'tournament-uuid';
+    const matchId = 'match-uuid';
+
+    const bo3Match = {
+      id: matchId,
+      tournamentId,
+      isVerified: false,
+      winnerId: 'uni-a',
+      loserId: 'uni-b',
+      bestOf: 3,
+      title: GameTitle.CODM,
+    };
+
+    const map = (gameNumber: number, winnerId: string) => ({
+      gameNumber,
+      winnerId,
+      mode: MatchGameMode.HARDPOINT,
+    });
+
+    beforeEach(() => {
+      mockPrismaService.match.findFirst.mockResolvedValue(bo3Match);
+      mockPrismaService.match.update.mockResolvedValue({
+        ...bo3Match,
+        isVerified: true,
+      });
+      mockPrismaService.matchGame.create.mockImplementation(
+        ({ data }: { data: { gameNumber: number } }) =>
+          Promise.resolve({ id: `game-${data.gameNumber}`, ...data }),
+      );
+    });
+
+    it('derives the series winner from the maps and stores each one', async () => {
+      await service.closeMatch(tournamentId, matchId, {
+        games: [map(1, 'uni-a'), map(2, 'uni-b'), map(3, 'uni-a')],
+      });
+
+      expect(mockPrismaService.matchGame.create).toHaveBeenCalledTimes(3);
+      expect(mockPrismaService.matchGame.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          gameNumber: 2,
+          winnerId: 'uni-b',
+          loserId: 'uni-a',
+        }),
+      });
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: matchId },
+        data: { winnerId: 'uni-a', loserId: 'uni-b', isVerified: true },
+      });
+    });
+
+    it('rejects an undecided series', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          games: [map(1, 'uni-a'), map(2, 'uni-b')],
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrismaService.matchGame.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a reported winner that contradicts the maps', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          winnerId: 'uni-b',
+          games: [map(1, 'uni-a'), map(2, 'uni-a')],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a map won by a university outside the match', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          games: [map(1, 'uni-a'), map(2, 'uni-c')],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects duplicate map numbers', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          games: [map(1, 'uni-a'), map(1, 'uni-a')],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects more maps than the series length allows', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {
+          games: [
+            map(1, 'uni-a'),
+            map(2, 'uni-a'),
+            map(3, 'uni-b'),
+            map(4, 'uni-b'),
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a close that reports neither maps nor player stats', async () => {
+      await expect(
+        service.closeMatch(tournamentId, matchId, {}),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('attaches per-map player stats to the map they came from', async () => {
+      await service.closeMatch(tournamentId, matchId, {
+        games: [
+          {
+            ...map(1, 'uni-a'),
+            players: [
+              {
+                universityId: 'uni-a',
+                name: 'ARDE Law',
+                kills: 41,
+                deaths: 20,
+                assists: 12,
+              },
+            ],
+          },
+          map(2, 'uni-a'),
+        ],
+      });
+
+      expect(mockPrismaService.playerStat.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            matchId,
+            matchGameId: 'game-1',
+            summonerName: 'ARDE Law',
+            win: true,
+          }),
+        ],
+      });
+    });
+  });
+
   describe('applyForTournament()', () => {
     it('rejects squad application if active roster count is less than min_roster_size', async () => {
       mockPrismaService.tournament.findUnique.mockResolvedValue({
