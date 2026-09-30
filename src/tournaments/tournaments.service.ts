@@ -1201,6 +1201,10 @@ export class TournamentsService {
     series: SeriesContext,
     seeded: string[],
     bracketSide: BracketSide | null,
+    // Default pairs strongest against weakest within the round. Pass true when
+    // `seeded` has already been arranged by orderForStandardPairing, so slot
+    // order is preserved and the top two seeds can only meet in the final.
+    preArranged = false,
   ) {
     const bracketSize = this.nextPowerOfTwo(seeded.length);
     const byeCount = bracketSize - seeded.length;
@@ -1225,12 +1229,15 @@ export class TournamentsService {
       ),
     );
     for (let i = 0; i < playing.length / 2; i++) {
+      const [a, b] = preArranged
+        ? [playing[i * 2], playing[i * 2 + 1]]
+        : [playing[i], playing[playing.length - 1 - i]];
       rows.push(
         this.matchRow(
           tournamentId,
           series,
-          playing[i],
-          playing[playing.length - 1 - i],
+          a,
+          b,
           1,
           bracketSide,
           byeCount + i,
@@ -1390,6 +1397,7 @@ export class TournamentsService {
     tournamentId: string,
     series: SeriesContext,
     playoffTeamCount: number | null,
+    playoffBracket: BracketFormat | null,
     matches: BracketMatchRow[],
   ) {
     const group = matches.filter((m) => m.round === 0);
@@ -1397,7 +1405,17 @@ export class TournamentsService {
 
     const playoffs = matches.filter((m) => m.round > 0);
     if (playoffs.length === 0) {
-      await this.seedPlayoffs(tournamentId, series, playoffTeamCount);
+      await this.seedPlayoffs(
+        tournamentId,
+        series,
+        playoffTeamCount,
+        playoffBracket,
+      );
+      return;
+    }
+
+    if (playoffBracket === BracketFormat.SINGLE_ELIM) {
+      await this.advanceEliminationLike(tournamentId, series, playoffs);
       return;
     }
 
@@ -1424,23 +1442,41 @@ export class TournamentsService {
     tournamentId: string,
     series: SeriesContext,
     playoffTeamCount: number | null,
+    playoffBracket: BracketFormat | null,
   ) {
-    const standings = await this.standingsService.computeStandings(
-      tournamentId,
-    );
+    const standings =
+      await this.standingsService.computeStandings(tournamentId);
     const ranked = standings.map((row) => row.universityId);
 
     const requested = playoffTeamCount ?? ranked.length;
+    // Brackets locked before the playoff-size guard existed can still carry a
+    // field that is not a power of two; round those down rather than refusing
+    // to seed a tournament that is already under way.
     const bracketSize = largestPowerOfTwoWithin(
       Math.min(requested, ranked.length),
     );
 
     if (bracketSize < 4) return;
 
+    const field = orderForStandardPairing(ranked.slice(0, bracketSize));
+
+    if (playoffBracket === BracketFormat.SINGLE_ELIM) {
+      await this.prisma.match.createMany({
+        data: this.buildEliminationSkeleton(
+          tournamentId,
+          series,
+          field,
+          null,
+          true,
+        ),
+      });
+      return;
+    }
+
     await this.createRound(
       tournamentId,
       series,
-      orderForStandardPairing(ranked.slice(0, bracketSize)),
+      field,
       1,
       BracketSide.WINNERS,
       'EARLY',
@@ -1497,6 +1533,7 @@ export class TournamentsService {
         bracketFormat: true,
         gameTitle: true,
         playoffTeamCount: true,
+        playoffBracket: true,
         bestOfEarly: true,
         bestOfLate: true,
         bestOfFinal: true,
@@ -1531,6 +1568,7 @@ export class TournamentsService {
         tournamentId,
         series,
         tournament.playoffTeamCount,
+        tournament.playoffBracket,
         matches,
       );
     } else {
