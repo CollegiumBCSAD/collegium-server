@@ -1683,9 +1683,28 @@ export class TournamentsService {
         wbRoundsCount + 1,
         BracketSide.GRAND_FINAL,
       );
-    } else if (gf.length === 1 && gf[0].isVerified) {
-      await this.completeTournament(tournamentId, gf[0].winnerId);
+      return;
     }
+
+    if (gf.length === 0 || !gf.every((m) => m.isVerified)) return;
+
+    const decider = gf.reduce((a, b) => (a.round >= b.round ? a : b));
+
+    // A grand final won by the losers-bracket side leaves both teams on one
+    // loss, so it decides nothing - the bracket resets for a decider. Only a
+    // winners-bracket-side win, or a second grand final, ends the tournament.
+    if (gf.length === 1 && wbChampion && decider.winnerId !== wbChampion) {
+      await this.createRound(
+        tournamentId,
+        gameTitle,
+        [wbChampion, decider.winnerId!],
+        decider.round + 1,
+        BracketSide.GRAND_FINAL,
+      );
+      return;
+    }
+
+    await this.completeTournament(tournamentId, decider.winnerId);
   }
 
   // CLOSE MATCH — Admin/Organizer manually reports the winner and per-player
