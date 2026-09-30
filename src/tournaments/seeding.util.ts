@@ -37,3 +37,16 @@ export function calculateEventWeight(
   if (teamCount >= 8) return 1.25;
   return 1.0;
 }
+
+export function orderForStandardPairing<T>(seeded: T[]): T[] {
+  return getStandardSeedPairs(seeded.length).flatMap((pair) => [
+    seeded[pair.seed1 - 1],
+    seeded[pair.seed2 - 1],
+  ]);
+}
+
+export function largestPowerOfTwoWithin(count: number): number {
+  let size = 1;
+  while (size * 2 <= count) size *= 2;
+  return size;
+}

@@ -1,4 +1,9 @@
-import { calculateEventWeight, getStandardSeedPairs } from './seeding.util';
+import {
+  calculateEventWeight,
+  getStandardSeedPairs,
+  largestPowerOfTwoWithin,
+  orderForStandardPairing,
+} from './seeding.util';
 
 describe('getStandardSeedPairs', () => {
   it('pairs two seeds', () => {
@@ -67,5 +72,40 @@ describe('calculateEventWeight', () => {
   it('falls back to the tier when no override is given', () => {
     expect(calculateEventWeight(16, null)).toBe(1.5);
     expect(calculateEventWeight(16, undefined)).toBe(1.5);
+  });
+});
+
+describe('orderForStandardPairing', () => {
+  it('orders a field so adjacent entries are the standard pairings', () => {
+    const seeded = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
+    expect(orderForStandardPairing(seeded)).toEqual([
+      's1',
+      's8',
+      's4',
+      's5',
+      's2',
+      's7',
+      's3',
+      's6',
+    ]);
+  });
+
+  it('pairs the top seed against the bottom seed in a field of four', () => {
+    expect(orderForStandardPairing(['a', 'b', 'c', 'd'])).toEqual([
+      'a',
+      'd',
+      'b',
+      'c',
+    ]);
+  });
+});
+
+describe('largestPowerOfTwoWithin', () => {
+  it('rounds a field down to a power of two', () => {
+    expect(largestPowerOfTwoWithin(8)).toBe(8);
+    expect(largestPowerOfTwoWithin(7)).toBe(4);
+    expect(largestPowerOfTwoWithin(12)).toBe(8);
+    expect(largestPowerOfTwoWithin(3)).toBe(2);
+    expect(largestPowerOfTwoWithin(1)).toBe(1);
   });
 });
