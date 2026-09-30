@@ -7,7 +7,8 @@ import {
   tierForEliminationRound,
 } from './series.util';
 
-const games = (...winners: string[]) => winners.map((winnerId) => ({ winnerId }));
+const games = (...winners: string[]) =>
+  winners.map((winnerId) => ({ winnerId }));
 
 describe('gamesNeededToWin', () => {
   it('is a majority of the series length', () => {
@@ -28,7 +29,9 @@ describe('resolveSeriesWinner', () => {
   });
 
   it('resolves a best of three that went the distance', () => {
-    expect(resolveSeriesWinner(games('umak', 'ateneo', 'umak'), 3)).toBe('umak');
+    expect(resolveSeriesWinner(games('umak', 'ateneo', 'umak'), 3)).toBe(
+      'umak',
+    );
   });
 
   it('leaves a best of three open at one map each', () => {
@@ -120,9 +123,9 @@ describe('seriesLengthFor', () => {
   });
 
   it('ignores a null or zero override and uses the default', () => {
-    expect(
-      seriesLengthFor('LATE', GameTitle.MLBB, { bestOfLate: null }),
-    ).toBe(5);
+    expect(seriesLengthFor('LATE', GameTitle.MLBB, { bestOfLate: null })).toBe(
+      5,
+    );
     expect(seriesLengthFor('LATE', GameTitle.MLBB, { bestOfLate: 0 })).toBe(5);
     expect(seriesLengthFor('LATE', GameTitle.MLBB, {})).toBe(5);
   });

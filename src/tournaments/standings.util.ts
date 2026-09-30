@@ -57,7 +57,9 @@ export function rankStandings(
       }
       return 0;
     });
-    ordered.push(...keyed.map((e) => ({ row: e.row, keys: [wins, ...e.keys] })));
+    ordered.push(
+      ...keyed.map((e) => ({ row: e.row, keys: [wins, ...e.keys] })),
+    );
   }
 
   return ordered.map((entry, index) => {

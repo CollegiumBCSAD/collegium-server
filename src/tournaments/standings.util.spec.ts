@@ -54,35 +54,23 @@ describe('rankStandings', () => {
   });
 
   it('falls through to map differential when the teams never met', () => {
-    const ranked = rankStandings([
-      row('a', 2, 1, 3, 3),
-      row('b', 2, 1, 5, 1),
-    ]);
+    const ranked = rankStandings([row('a', 2, 1, 3, 3), row('b', 2, 1, 5, 1)]);
     expect(ranked.map((r) => r.universityId)).toEqual(['b', 'a']);
     expect(ranked[0].mapDiff).toBe(4);
   });
 
   it('breaks an equal map differential on total maps won', () => {
-    const ranked = rankStandings([
-      row('a', 1, 1, 2, 1),
-      row('b', 1, 1, 4, 3),
-    ]);
+    const ranked = rankStandings([row('a', 1, 1, 2, 1), row('b', 1, 1, 4, 3)]);
     expect(ranked.map((r) => r.universityId)).toEqual(['b', 'a']);
   });
 
   it('flags a tie that no criterion resolves', () => {
-    const ranked = rankStandings([
-      row('a', 1, 1, 2, 2),
-      row('b', 1, 1, 2, 2),
-    ]);
+    const ranked = rankStandings([row('a', 1, 1, 2, 2), row('b', 1, 1, 2, 2)]);
     expect(ranked.every((r) => r.tied)).toBe(true);
   });
 
   it('does not flag teams separated by a criterion', () => {
-    const ranked = rankStandings([
-      row('a', 1, 1, 3, 1),
-      row('b', 1, 1, 2, 2),
-    ]);
+    const ranked = rankStandings([row('a', 1, 1, 3, 1), row('b', 1, 1, 2, 2)]);
     expect(ranked.every((r) => !r.tied)).toBe(true);
   });
 
