@@ -306,6 +306,10 @@ model Tournament {
   imagePublicId           String?
   bracketFormat           BracketFormat?
   playoffTeamCount        Int?
+  playoffBracket          BracketFormat?
+  bestOfEarly             Int?
+  bestOfLate              Int?
+  bestOfFinal             Int?
   teamQuota               Int?
   rules                   String?
   startDate               DateTime?
