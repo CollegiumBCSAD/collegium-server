@@ -93,6 +93,8 @@ model University {
   tournaments            Tournament[]
   wonMatches             Match[]                 @relation("MatchWinner")
   lostMatches            Match[]                 @relation("MatchLoser")
+  wonGames               MatchGame[]             @relation("GameWinner")
+  lostGames              MatchGame[]             @relation("GameLoser")
   playerStats            PlayerStat[]
   tournamentApplications TournamentApplication[]
   championedTournaments  Tournament[]            @relation("TournamentChampion")
@@ -243,6 +245,8 @@ model Match {
   // Bracket position within a tournament. round 0 = round-robin group stage;
   // round 1+ = single-elim rounds, playoff rounds, or double-elim WB/LB rounds.
   round            Int          @default(1)
+  bestOf           Int          @default(1)
+  games            MatchGame[]
   bracketSide      BracketSide?
   // Position of this match within its round, left to right (0-based). The
   // bracket tree is positional: slot N of round R feeds slot floor(N/2) of
@@ -257,6 +261,33 @@ enum BracketSide {
   WINNERS
   LOSERS
   GRAND_FINAL
+}
+
+enum MatchGameMode {
+  HARDPOINT
+  SEARCH_AND_DESTROY
+  CONTROL
+}
+
+// One game (map) inside a match. A best-of-one match has none: the result lives
+// on the Match itself. Bo3/Bo5 matches carry one row per map played, and the
+// Match winner is derived from them.
+model MatchGame {
+  id          String         @id @default(uuid())
+  matchId     String
+  match       Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  gameNumber  Int
+  mode        MatchGameMode?
+  winnerId    String?
+  winner      University?    @relation("GameWinner", fields: [winnerId], references: [id])
+  loserId     String?
+  loser       University?    @relation("GameLoser", fields: [loserId], references: [id])
+  winnerScore Int?
+  loserScore  Int?
+  playerStats PlayerStat[]
+  createdAt   DateTime       @default(now())
+
+  @@unique([matchId, gameNumber])
 }
 
 enum BracketFormat {
@@ -361,6 +392,8 @@ model PlayerStat {
   id                          String              @id @default(uuid())
   matchId                     String
   match                       Match               @relation(fields: [matchId], references: [id])
+  matchGameId                 String?
+  matchGame                   MatchGame?          @relation(fields: [matchGameId], references: [id], onDelete: Cascade)
   userId                      String?
   user                        User?               @relation(fields: [userId], references: [id])
   // Which side of the match this stat row belongs to — set for manually
