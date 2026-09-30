@@ -25,6 +25,11 @@ import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CloseMatchDto, ClosePlayerStatDto } from './dto/close-match.dto';
 import { gamesNeededToWin, resolveSeriesWinner } from './series.util';
+import {
+  largestPowerOfTwoWithin,
+  orderForStandardPairing,
+} from './seeding.util';
+import { StandingsService } from './standings.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -98,6 +103,7 @@ export class TournamentsService {
     private ocrService: OcrService,
     private rankingService: RankingService,
     private realtimeGateway: RealtimeGateway,
+    private standingsService: StandingsService,
   ) {}
 
   async scanMatch(
@@ -1303,39 +1309,84 @@ export class TournamentsService {
     });
   }
 
-  // Once every round-0 match is verified, seed a single-elim playoff bracket
-  // from the group standings (most wins first), seeded best-vs-worst.
+  // ROUND ROBIN ONLY — no elimination stage at all. The tournament ends when
+  // every pairing has been played, and the top of the standings table takes
+  // the title.
+  private async advanceRoundRobin(
+    tournamentId: string,
+    matches: BracketMatchRow[],
+  ) {
+    if (!matches.every((m) => m.isVerified)) return;
+
+    const standings = await this.standingsService.computeStandings(
+      tournamentId,
+    );
+    await this.completeTournament(
+      tournamentId,
+      standings[0]?.universityId ?? null,
+    );
+  }
+
+  // ROUND ROBIN + PLAYOFFS — a group stage at round 0 feeding a
+  // double-elimination playoff bracket at rounds 1+.
+  private async advanceTwoStage(
+    tournamentId: string,
+    gameTitle: GameTitle | null,
+    playoffTeamCount: number | null,
+    matches: BracketMatchRow[],
+  ) {
+    const group = matches.filter((m) => m.round === 0);
+    if (group.length > 0 && !group.every((m) => m.isVerified)) return;
+
+    const playoffs = matches.filter((m) => m.round > 0);
+    if (playoffs.length === 0) {
+      await this.seedPlayoffs(tournamentId, gameTitle, playoffTeamCount);
+      return;
+    }
+
+    await this.advanceDoubleElimination(tournamentId, gameTitle, playoffs);
+  }
+
+  private async completeTournament(
+    tournamentId: string,
+    championUniversityId: string | null,
+  ) {
+    if (championUniversityId) {
+      await this.prisma.tournament.update({
+        where: { id: tournamentId },
+        data: { championUniversityId },
+      });
+    }
+    await this.rankingService.closeTournamentRatingPeriod(tournamentId);
+  }
+
+  // Once every round-0 match is verified, seed a double-elimination playoff
+  // bracket from the group standings, paired 1v8/4v5/2v7/3v6 so the top seeds
+  // can only meet late.
   private async seedPlayoffs(
     tournamentId: string,
     gameTitle: GameTitle | null,
-    groupMatches: BracketMatchRow[],
+    playoffTeamCount: number | null,
   ) {
-    const wins = new Map<string, number>();
-    for (const m of groupMatches) {
-      if (m.winnerId) wins.set(m.winnerId, (wins.get(m.winnerId) ?? 0) + 1);
-      if (m.loserId && !wins.has(m.loserId)) wins.set(m.loserId, 0);
-    }
+    const standings = await this.standingsService.computeStandings(
+      tournamentId,
+    );
+    const ranked = standings.map((row) => row.universityId);
 
-    const ranked = [...wins.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([id]) => id);
+    const requested = playoffTeamCount ?? ranked.length;
+    const bracketSize = largestPowerOfTwoWithin(
+      Math.min(requested, ranked.length),
+    );
 
-    if (ranked.length < 2) return;
+    if (bracketSize < 4) return;
 
-    // Playoffs need a power-of-2 field; drop the lowest seeds that don't fit.
-    let bracketSize = 2;
-    while (bracketSize * 2 <= ranked.length) bracketSize *= 2;
-
-    // Same best-vs-worst pairing as before, but the whole playoff tree is
-    // created at once (the field is already a power of 2, so there are no byes).
-    await this.prisma.match.createMany({
-      data: this.buildEliminationSkeleton(
-        tournamentId,
-        gameTitle,
-        ranked.slice(0, bracketSize),
-        null,
-      ),
-    });
+    await this.createRound(
+      tournamentId,
+      gameTitle,
+      orderForStandardPairing(ranked.slice(0, bracketSize)),
+      1,
+      BracketSide.WINNERS,
+    );
   }
 
   // DOUBLE ELIMINATION — winners-bracket round 1. Requires a power-of-2 field
@@ -1387,7 +1438,12 @@ export class TournamentsService {
   private async tryAdvanceBracket(tournamentId: string) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
-      select: { status: true, bracketFormat: true, gameTitle: true },
+      select: {
+        status: true,
+        bracketFormat: true,
+        gameTitle: true,
+        playoffTeamCount: true,
+      },
     });
 
     if (!tournament || tournament.status !== TournamentStatus.ONGOING) return;
@@ -1411,6 +1467,15 @@ export class TournamentsService {
       await this.advanceDoubleElimination(
         tournamentId,
         tournament.gameTitle,
+        matches,
+      );
+    } else if (tournament.bracketFormat === BracketFormat.ROUND_ROBIN) {
+      await this.advanceRoundRobin(tournamentId, matches);
+    } else if (tournament.bracketFormat === BracketFormat.TWO_STAGE) {
+      await this.advanceTwoStage(
+        tournamentId,
+        tournament.gameTitle,
+        tournament.playoffTeamCount,
         matches,
       );
     } else {
@@ -1439,14 +1504,6 @@ export class TournamentsService {
     // Round 0 is the Round Robin + Playoffs group stage. Once every group
     // match is verified it seeds the playoff tree - but only once, or a later
     // close would re-seed playoffs that are already under way.
-    if (rounds[0] === 0) {
-      const group = matches.filter((m) => m.round === 0);
-      if (!group.every((m) => m.isVerified)) return;
-      if (!matches.some((m) => m.round > 0)) {
-        await this.seedPlayoffs(tournamentId, gameTitle, group);
-        return;
-      }
-    }
 
     // Walk the tree from the bottom up and act on the first unresolved round.
     for (const round of rounds.filter((r) => r > 0)) {
@@ -1467,7 +1524,7 @@ export class TournamentsService {
           if (unverified.length > 0) {
             return;
           }
-          await this.rankingService.closeTournamentRatingPeriod(tournamentId);
+          await this.completeTournament(tournamentId, winners[0] ?? null);
           return;
         }
 
@@ -1627,7 +1684,7 @@ export class TournamentsService {
         BracketSide.GRAND_FINAL,
       );
     } else if (gf.length === 1 && gf[0].isVerified) {
-      await this.rankingService.closeTournamentRatingPeriod(tournamentId);
+      await this.completeTournament(tournamentId, gf[0].winnerId);
     }
   }
 

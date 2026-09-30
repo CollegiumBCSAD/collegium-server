@@ -17,6 +17,7 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { StandingsService } from './standings.service';
 import { TournamentsService } from './tournaments.service';
 
 // Reads the first argument of a mock's first call. Untyped jest.fn() mocks
@@ -99,6 +100,10 @@ const mockRankingService = {
   getTeamRatingHistory: jest.fn().mockResolvedValue([]),
 };
 
+const mockStandingsService = {
+  computeStandings: jest.fn().mockResolvedValue([]),
+};
+
 const mockRealtimeGateway = {
   emitToTournament: jest.fn(),
   emitToUser: jest.fn(),
@@ -118,6 +123,7 @@ describe('TournamentsService', () => {
         { provide: OcrService, useValue: mockOcrService },
         { provide: RankingService, useValue: mockRankingService },
         { provide: RealtimeGateway, useValue: mockRealtimeGateway },
+        { provide: StandingsService, useValue: mockStandingsService },
       ],
     }).compile();
 
