@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
+import { MatchGameMode } from '@prisma/client';
 import {
   ArrayMinSize,
+  IsEnum,
   IsArray,
   IsInt,
   IsNotEmpty,
@@ -41,13 +43,51 @@ export class ClosePlayerStatDto {
   extra?: Record<string, unknown>;
 }
 
-export class CloseMatchDto {
+export class CloseGameDto {
+  @IsInt()
+  @Min(1)
+  gameNumber: number;
+
+  @IsOptional()
+  @IsEnum(MatchGameMode)
+  mode?: MatchGameMode;
+
   @IsUUID()
   winnerId: string;
 
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  winnerScore?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  loserScore?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ClosePlayerStatDto)
+  players?: ClosePlayerStatDto[];
+}
+
+export class CloseMatchDto {
+  @IsOptional()
+  @IsUUID()
+  winnerId?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => ClosePlayerStatDto)
-  players: ClosePlayerStatDto[];
+  players?: ClosePlayerStatDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CloseGameDto)
+  games?: CloseGameDto[];
 }

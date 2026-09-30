@@ -23,7 +23,8 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { CloseMatchDto } from './dto/close-match.dto';
+import { CloseMatchDto, ClosePlayerStatDto } from './dto/close-match.dto';
+import { gamesNeededToWin, resolveSeriesWinner } from './series.util';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
@@ -1632,6 +1633,29 @@ export class TournamentsService {
 
   // CLOSE MATCH — Admin/Organizer manually reports the winner and per-player
   // stats for a match (no Riot API involved), verifying it and running ratings.
+  private playerStatRow(
+    player: ClosePlayerStatDto,
+    matchId: string,
+    winningUniversityId: string,
+    matchGameId?: string,
+  ) {
+    return {
+      matchId,
+      matchGameId,
+      universityId: player.universityId,
+      userId: player.userId,
+      summonerName: player.name,
+      kills: player.kills,
+      deaths: player.deaths,
+      assists: player.assists,
+      win: player.universityId === winningUniversityId,
+      dataSource: DataSource.PEER_VERIFIED,
+      ...(player.extra !== undefined
+        ? { extraStats: player.extra as Prisma.InputJsonValue }
+        : {}),
+    };
+  }
+
   async closeMatch(tournamentId: string, matchId: string, dto: CloseMatchDto) {
     const match = await this.prisma.match.findFirst({
       where: { id: matchId, tournamentId },
@@ -1652,15 +1676,64 @@ export class TournamentsService {
       (id): id is string => !!id,
     );
 
-    if (!contestants.includes(dto.winnerId)) {
+    const games = dto.games ?? [];
+    const matchPlayers = dto.players ?? [];
+
+    if (games.length === 0 && matchPlayers.length === 0) {
+      throw new BadRequestException(
+        'Report either per-map results or player stats for this match',
+      );
+    }
+
+    if (new Set(games.map((game) => game.gameNumber)).size !== games.length) {
+      throw new BadRequestException('Each map must have a distinct gameNumber');
+    }
+
+    if (games.length > match.bestOf) {
+      throw new BadRequestException(
+        `This match is a best of ${match.bestOf}, but ${games.length} maps were reported`,
+      );
+    }
+
+    for (const game of games) {
+      if (!contestants.includes(game.winnerId)) {
+        throw new BadRequestException(
+          `Map ${game.gameNumber} winner ${game.winnerId} is not one of the two universities in this match`,
+        );
+      }
+    }
+
+    const seriesWinnerId = games.length
+      ? resolveSeriesWinner(games, match.bestOf)
+      : (dto.winnerId ?? null);
+
+    if (!seriesWinnerId) {
+      throw new BadRequestException(
+        games.length
+          ? `This series is undecided - no university has won ${gamesNeededToWin(match.bestOf)} of ${match.bestOf} maps`
+          : 'winnerId is required when no per-map results are reported',
+      );
+    }
+
+    if (!contestants.includes(seriesWinnerId)) {
       throw new BadRequestException(
         'winnerId must be one of the two universities in this match',
       );
     }
 
-    const loserId = contestants.find((id) => id !== dto.winnerId)!;
+    if (dto.winnerId && dto.winnerId !== seriesWinnerId) {
+      throw new BadRequestException(
+        'The reported winner does not match the per-map results',
+      );
+    }
 
-    for (const player of dto.players) {
+    const loserId = contestants.find((id) => id !== seriesWinnerId)!;
+
+    const allPlayers = [
+      ...matchPlayers,
+      ...games.flatMap((game) => game.players ?? []),
+    ];
+    for (const player of allPlayers) {
       if (!contestants.includes(player.universityId)) {
         throw new BadRequestException(
           `Player university ${player.universityId} is not one of the two universities in this match`,
@@ -1683,26 +1756,39 @@ export class TournamentsService {
 
       // Ratings are NOT updated here; the rating pipeline is an event-driven
       // batch update at tournament closure.
-      await tx.playerStat.createMany({
-        data: dto.players.map((player) => ({
-          matchId,
-          universityId: player.universityId,
-          userId: player.userId,
-          summonerName: player.name,
-          kills: player.kills,
-          deaths: player.deaths,
-          assists: player.assists,
-          win: player.universityId === dto.winnerId,
-          dataSource: DataSource.PEER_VERIFIED,
-          ...(player.extra !== undefined
-            ? { extraStats: player.extra as Prisma.InputJsonValue }
-            : {}),
-        })),
-      });
+      for (const game of games) {
+        const created = await tx.matchGame.create({
+          data: {
+            matchId,
+            gameNumber: game.gameNumber,
+            mode: game.mode,
+            winnerId: game.winnerId,
+            loserId: contestants.find((id) => id !== game.winnerId)!,
+            winnerScore: game.winnerScore,
+            loserScore: game.loserScore,
+          },
+        });
+
+        if (game.players?.length) {
+          await tx.playerStat.createMany({
+            data: game.players.map((player) =>
+              this.playerStatRow(player, matchId, game.winnerId, created.id),
+            ),
+          });
+        }
+      }
+
+      if (matchPlayers.length) {
+        await tx.playerStat.createMany({
+          data: matchPlayers.map((player) =>
+            this.playerStatRow(player, matchId, seriesWinnerId),
+          ),
+        });
+      }
 
       return tx.match.update({
         where: { id: matchId },
-        data: { winnerId: dto.winnerId, loserId, isVerified: true },
+        data: { winnerId: seriesWinnerId, loserId, isVerified: true },
       });
     });
 
