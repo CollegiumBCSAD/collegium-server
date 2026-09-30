@@ -1416,11 +1416,6 @@ export class TournamentsService {
   // alternates a "pure" survivor-vs-survivor round with a "merge" round that
   // pulls in each subsequent WB round's losers, ending with the LB final that
   // feeds the grand final.
-  // ponytail: no bracket-reset if the losers-bracket champion beats the
-  // winners-bracket champion in the grand final (real double-elim would force
-  // a second match, since the WB champion still has zero losses) — add a
-  // second grand-final match on that outcome if this needs to be
-  // tournament-official rather than casual.
   private losersBracketSchedule(wbRounds: number): LosersBracketStep[] {
     const schedule: LosersBracketStep[] = [
       { type: 'seed', consumesWbRound: 1 },
