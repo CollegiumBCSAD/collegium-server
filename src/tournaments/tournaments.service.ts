@@ -1107,6 +1107,7 @@ export class TournamentsService {
         tournament.id,
         series,
         universities,
+        randomize,
       );
       return;
     }
@@ -1518,6 +1519,7 @@ export class TournamentsService {
     tournamentId: string,
     series: SeriesContext,
     universities: { id: string }[],
+    randomize: boolean,
   ) {
     if (!this.isPowerOfTwo(universities.length)) {
       throw new BadRequestException(
@@ -1525,10 +1527,19 @@ export class TournamentsService {
       );
     }
 
+    // Rating-seeded by default, standard-paired (1v16, 8v9, ...) so the top
+    // seeds can only meet late - or a blind random draw on request, same
+    // split as Single Elimination.
+    const seeded = randomize
+      ? this.shuffle(universities).map((u) => u.id)
+      : orderForStandardPairing(
+          await this.seedByRating(universities, series.gameTitle),
+        );
+
     await this.createRound(
       tournamentId,
       series,
-      this.shuffle(universities).map((u) => u.id),
+      seeded,
       1,
       BracketSide.WINNERS,
       'EARLY',

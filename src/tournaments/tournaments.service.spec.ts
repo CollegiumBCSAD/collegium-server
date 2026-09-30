@@ -759,6 +759,68 @@ describe('TournamentsService', () => {
         ),
       ).toBe(true);
     });
+
+    it('rating-seeds Double Elimination round 1 (strongest vs weakest) by default', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          gameTitle: GameTitle.VALORANT,
+          bracketFormat: BracketFormat.DOUBLE_ELIM,
+          universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+        })
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          matches: [],
+          universities: [],
+        });
+      mockPrismaService.team.findMany.mockResolvedValueOnce([
+        { universityId: 'a', glicko2_rating: 1200 },
+        { universityId: 'b', glicko2_rating: 1600 },
+        { universityId: 'c', glicko2_rating: 1400 },
+        { universityId: 'd', glicko2_rating: 1800 },
+      ]);
+
+      await service.generateBracket(tournamentId);
+
+      const { data } = firstCallArg<{
+        data: Array<{ slot: number; winnerId?: string; loserId?: string }>;
+      }>(mockPrismaService.match.createMany);
+
+      // Standard 1v4/2v3 seeding on ratings [d:1800, b:1600, c:1400, a:1200]:
+      // strongest (d) vs weakest (a), then the middle pair (b vs c).
+      const bySlot = (slot: number) => data.find((m) => m.slot === slot)!;
+      expect(new Set([bySlot(0).winnerId, bySlot(0).loserId])).toEqual(
+        new Set(['d', 'a']),
+      );
+      expect(new Set([bySlot(1).winnerId, bySlot(1).loserId])).toEqual(
+        new Set(['b', 'c']),
+      );
+    });
+
+    it('falls back to a random draw for Double Elimination when randomize is requested', async () => {
+      mockPrismaService.tournament.findUnique
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          status: TournamentStatus.UPCOMING,
+          gameTitle: GameTitle.VALORANT,
+          bracketFormat: BracketFormat.DOUBLE_ELIM,
+          universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+        })
+        .mockResolvedValueOnce({
+          id: tournamentId,
+          matches: [],
+          universities: [],
+        });
+
+      await service.generateBracket(tournamentId, { randomize: true });
+
+      expect(mockPrismaService.team.findMany).not.toHaveBeenCalled();
+      const { data } = firstCallArg<{
+        data: Array<{ round: number; bracketSide: BracketSide }>;
+      }>(mockPrismaService.match.createMany);
+      expect(data).toHaveLength(2);
+    });
   });
 
   // losersBracketSchedule() — the double-elim losers-bracket round plan
