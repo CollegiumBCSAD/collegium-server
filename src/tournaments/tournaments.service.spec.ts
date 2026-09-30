@@ -1307,7 +1307,7 @@ describe('TournamentsService', () => {
           gameNumber: 2,
           winnerId: 'uni-b',
           loserId: 'uni-a',
-        }),
+        }) as Record<string, unknown>,
       });
       expect(mockPrismaService.match.update).toHaveBeenCalledWith({
         where: { id: matchId },
