@@ -94,6 +94,15 @@ type ApplicationRow = {
   team?: { name: string } | null;
 };
 
+// Call of Duty: Mobile is played as a best of three - Hardpoint, then Search
+// and Destroy, then Control. The other titles report a single result per match.
+const SERIES_LENGTH: Record<GameTitle, number> = {
+  [GameTitle.CODM]: 3,
+  [GameTitle.LOL]: 1,
+  [GameTitle.VALORANT]: 1,
+  [GameTitle.MLBB]: 1,
+};
+
 @Injectable()
 export class TournamentsService {
   constructor(
@@ -1266,6 +1275,7 @@ export class TournamentsService {
       loserId: loserId ?? undefined,
       isVerified,
       round,
+      bestOf: SERIES_LENGTH[gameTitle ?? GameTitle.LOL],
       bracketSide: bracketSide ?? undefined,
       slot,
     };
