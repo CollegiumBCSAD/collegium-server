@@ -277,6 +277,7 @@ export class TournamentsService {
         name: createTournamentDto.name,
         gameTitle: createTournamentDto.gameTitle,
         bracketFormat: createTournamentDto.bracketFormat,
+        playoffTeamCount: createTournamentDto.playoffTeamCount,
         teamQuota: createTournamentDto.teamQuota,
         rules: createTournamentDto.rules,
         startDate: createTournamentDto.startDate
@@ -338,6 +339,8 @@ export class TournamentsService {
         gameTitle: updateTournamentDto.gameTitle ?? tournament.gameTitle,
         bracketFormat:
           updateTournamentDto.bracketFormat ?? tournament.bracketFormat,
+        playoffTeamCount:
+          updateTournamentDto.playoffTeamCount ?? tournament.playoffTeamCount,
         teamQuota: updateTournamentDto.teamQuota ?? tournament.teamQuota,
         rules: updateTournamentDto.rules ?? tournament.rules,
         startDate: updateTournamentDto.startDate

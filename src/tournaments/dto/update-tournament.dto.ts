@@ -30,6 +30,12 @@ export class UpdateTournamentDto {
   @Type(() => Number)
   @IsInt()
   @Min(2)
+  playoffTeamCount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2)
   teamQuota?: number;
 
   @IsOptional()
