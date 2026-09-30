@@ -985,6 +985,13 @@ export class TournamentsService {
       );
     }
 
+    if (tournament.bracketFormat === BracketFormat.TWO_STAGE) {
+      this.assertPlayoffFieldFits(
+        tournament.playoffTeamCount,
+        universities.length,
+      );
+    }
+
     await this.seedBracketMatches(
       tournament,
       universities,
@@ -1271,6 +1278,28 @@ export class TournamentsService {
     }
 
     return rows;
+  }
+
+  // A playoff field that is not a power of two cannot fill a bracket, and
+  // rounding it down would silently drop universities that qualified. Reject
+  // it at lock instead, while the organizer can still change the number.
+  private assertPlayoffFieldFits(
+    playoffTeamCount: number | null | undefined,
+    registeredCount: number,
+  ) {
+    if (playoffTeamCount === null || playoffTeamCount === undefined) return;
+
+    if (playoffTeamCount < 4 || !this.isPowerOfTwo(playoffTeamCount)) {
+      throw new BadRequestException(
+        `A playoff field of ${playoffTeamCount} cannot fill a bracket - use 4, 8, or 16`,
+      );
+    }
+
+    if (playoffTeamCount > registeredCount) {
+      throw new BadRequestException(
+        `${playoffTeamCount} universities cannot advance to the playoffs - only ${registeredCount} are registered`,
+      );
+    }
   }
 
   private seriesContextFor(

@@ -506,6 +506,59 @@ describe('TournamentsService', () => {
       );
     });
 
+    const twoStageWith = (
+      playoffTeamCount: number | null | undefined,
+      universityCount: number,
+    ) => ({
+      id: tournamentId,
+      status: TournamentStatus.UPCOMING,
+      gameTitle: GameTitle.MLBB,
+      bracketFormat: BracketFormat.TWO_STAGE,
+      playoffTeamCount,
+      universities: Array.from({ length: universityCount }, (_, i) => ({
+        id: `uni-${i}`,
+      })),
+    });
+
+    it.each([6, 3, 5, 12])(
+      'rejects a playoff field of %i that cannot fill a bracket',
+      async (size) => {
+        mockPrismaService.tournament.findUnique.mockResolvedValue(
+          twoStageWith(size, 8),
+        );
+
+        await expect(service.generateBracket(tournamentId)).rejects.toThrow(
+          /cannot fill a bracket/,
+        );
+      },
+    );
+
+    it('rejects a playoff field larger than the registered field', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(
+        twoStageWith(8, 6),
+      );
+
+      await expect(service.generateBracket(tournamentId)).rejects.toThrow(
+        /only 6 are registered/,
+      );
+    });
+
+    it.each([4, 8])('accepts a playoff field of %i', async (size) => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(
+        twoStageWith(size, 8),
+      );
+
+      await expect(service.generateBracket(tournamentId)).resolves.toBeDefined();
+    });
+
+    it('accepts a tournament that has no playoff field set', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(
+        twoStageWith(undefined, 8),
+      );
+
+      await expect(service.generateBracket(tournamentId)).resolves.toBeDefined();
+    });
+
     it('should throw BadRequestException if fewer than 2 universities are registered', async () => {
       mockPrismaService.tournament.findUnique.mockResolvedValue({
         id: tournamentId,
