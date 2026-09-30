@@ -7,7 +7,7 @@ import {
   Min,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { GameTitle } from '@prisma/client';
+import { BracketFormat, GameTitle } from '@prisma/client';
 
 export class CreateTournamentDto {
   @Transform(({ value }: { value: unknown }) =>
@@ -22,8 +22,8 @@ export class CreateTournamentDto {
   gameTitle?: GameTitle;
 
   @IsOptional()
-  @IsString()
-  bracketFormat?: string;
+  @IsEnum(BracketFormat)
+  bracketFormat?: BracketFormat;
 
   @IsOptional()
   @Type(() => Number)

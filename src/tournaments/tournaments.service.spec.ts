@@ -4,7 +4,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BracketSide, TournamentStatus, GameTitle, Role } from '@prisma/client';
+import {
+  BracketFormat,
+  BracketSide,
+  TournamentStatus,
+  GameTitle,
+  Role,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -187,7 +193,7 @@ describe('TournamentsService', () => {
       const dto = {
         name: 'Community Cup',
         gameTitle: GameTitle.VALORANT,
-        bracketFormat: 'Single Elimination',
+        bracketFormat: BracketFormat.SINGLE_ELIM,
         teamQuota: 8,
         rules: 'Best of 3 semis, Bo5 finals',
       };
@@ -450,14 +456,14 @@ describe('TournamentsService', () => {
         id: tournamentId,
         organizerId: user.id,
         status: TournamentStatus.UPCOMING,
-        bracketFormat: 'Round Robin + Playoffs',
+        bracketFormat: BracketFormat.TWO_STAGE,
         matches: [],
         universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
       });
       mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
         id: tournamentId,
         status: TournamentStatus.UPCOMING,
-        bracketFormat: 'Round Robin + Playoffs',
+        bracketFormat: BracketFormat.TWO_STAGE,
         universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
       });
       mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
@@ -630,7 +636,7 @@ describe('TournamentsService', () => {
         .mockResolvedValueOnce({
           id: tournamentId,
           status: TournamentStatus.UPCOMING,
-          bracketFormat: 'Round Robin + Playoffs',
+          bracketFormat: BracketFormat.TWO_STAGE,
           universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
         })
         .mockResolvedValueOnce({
@@ -653,7 +659,7 @@ describe('TournamentsService', () => {
       mockPrismaService.tournament.findUnique.mockResolvedValueOnce({
         id: tournamentId,
         status: TournamentStatus.UPCOMING,
-        bracketFormat: 'Double Elimination',
+        bracketFormat: BracketFormat.DOUBLE_ELIM,
         universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
       });
 
@@ -667,7 +673,7 @@ describe('TournamentsService', () => {
         .mockResolvedValueOnce({
           id: tournamentId,
           status: TournamentStatus.UPCOMING,
-          bracketFormat: 'Double Elimination',
+          bracketFormat: BracketFormat.DOUBLE_ELIM,
           universities: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
         })
         .mockResolvedValueOnce({
@@ -1238,7 +1244,7 @@ describe('TournamentsService', () => {
       mockPrismaService.tournament.findUnique.mockResolvedValue({
         id: 't1',
         status: TournamentStatus.ONGOING,
-        bracketFormat: 'Single Elimination',
+        bracketFormat: BracketFormat.SINGLE_ELIM,
       });
 
       mockPrismaService.match.findMany.mockResolvedValue([

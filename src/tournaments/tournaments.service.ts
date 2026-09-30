@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  BracketFormat,
   BracketSide,
   DataSource,
   GameTitle,
@@ -1005,9 +1006,12 @@ export class TournamentsService {
       );
     }
 
-    if (tournament.bracketFormat === 'Round Robin + Playoffs') {
+    if (
+      tournament.bracketFormat === BracketFormat.ROUND_ROBIN ||
+      tournament.bracketFormat === BracketFormat.TWO_STAGE
+    ) {
       throw new BadRequestException(
-        'Round Robin + Playoffs has no random draw - every university plays every other university',
+        'Round robin formats have no random draw - every university plays every other university',
       );
     }
 
@@ -1042,13 +1046,16 @@ export class TournamentsService {
   private async seedBracketMatches(
     tournament: {
       id: string;
-      bracketFormat: string | null;
+      bracketFormat: BracketFormat | null;
       gameTitle: GameTitle | null;
     },
     universities: { id: string }[],
     randomize: boolean,
   ) {
-    if (tournament.bracketFormat === 'Round Robin + Playoffs') {
+    if (
+      tournament.bracketFormat === BracketFormat.ROUND_ROBIN ||
+      tournament.bracketFormat === BracketFormat.TWO_STAGE
+    ) {
       await this.generateRoundRobinStage(
         tournament.id,
         tournament.gameTitle,
@@ -1057,7 +1064,7 @@ export class TournamentsService {
       return;
     }
 
-    if (tournament.bracketFormat === 'Double Elimination') {
+    if (tournament.bracketFormat === BracketFormat.DOUBLE_ELIM) {
       await this.generateDoubleEliminationRound1(
         tournament.id,
         tournament.gameTitle,
@@ -1396,7 +1403,7 @@ export class TournamentsService {
 
     if (matches.length === 0) return;
 
-    if (tournament.bracketFormat === 'Double Elimination') {
+    if (tournament.bracketFormat === BracketFormat.DOUBLE_ELIM) {
       await this.advanceDoubleElimination(
         tournamentId,
         tournament.gameTitle,

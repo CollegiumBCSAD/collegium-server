@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import {
   PrismaClient,
+  BracketFormat,
   GameTitle,
   MatchMode,
   Role,
@@ -209,7 +210,7 @@ async function main() {
     data: {
       name: 'PH Collegiate Valorant Invitational — Season 1',
       gameTitle: GameTitle.VALORANT,
-      bracketFormat: 'Single Elimination',
+      bracketFormat: BracketFormat.SINGLE_ELIM,
       teamQuota: 8,
       status: TournamentStatus.COMPLETED,
       universities: {
@@ -293,7 +294,7 @@ async function main() {
       data: {
         name: `${game.label} Collegiate Series — Live`,
         gameTitle: game.title,
-        bracketFormat: 'Single Elimination',
+        bracketFormat: BracketFormat.SINGLE_ELIM,
         teamQuota: 8,
         rules: 'Best of 3 up to the final, Best of 5 grand final. Registered varsity rosters only.',
         status: TournamentStatus.ONGOING,
@@ -362,7 +363,7 @@ async function main() {
     data: {
       name: 'Manila Community Clash — Mobile Legends',
       gameTitle: GameTitle.MLBB,
-      bracketFormat: 'Single Elimination',
+      bracketFormat: BracketFormat.SINGLE_ELIM,
       teamQuota: 8,
       rules: 'Open community bracket, best of 3 up to the final.',
       status: TournamentStatus.PENDING_APPROVAL,
