@@ -24,7 +24,14 @@ import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CloseMatchDto, ClosePlayerStatDto } from './dto/close-match.dto';
-import { gamesNeededToWin, resolveSeriesWinner } from './series.util';
+import {
+  gamesNeededToWin,
+  resolveSeriesWinner,
+  seriesLengthFor,
+  SeriesOverrides,
+  SeriesTier,
+  tierForEliminationRound,
+} from './series.util';
 import {
   largestPowerOfTwoWithin,
   orderForStandardPairing,
@@ -94,14 +101,10 @@ type ApplicationRow = {
   team?: { name: string } | null;
 };
 
-// Call of Duty: Mobile is played as a best of three - Hardpoint, then Search
-// and Destroy, then Control. The other titles report a single result per match.
-const SERIES_LENGTH: Record<GameTitle, number> = {
-  [GameTitle.CODM]: 3,
-  [GameTitle.LOL]: 1,
-  [GameTitle.VALORANT]: 1,
-  [GameTitle.MLBB]: 1,
-};
+interface SeriesContext {
+  gameTitle: GameTitle | null;
+  overrides: SeriesOverrides;
+}
 
 @Injectable()
 export class TournamentsService {
@@ -1071,22 +1074,20 @@ export class TournamentsService {
     universities: { id: string }[],
     randomize: boolean,
   ) {
+    const series = this.seriesContextFor(tournament);
+
     if (
       tournament.bracketFormat === BracketFormat.ROUND_ROBIN ||
       tournament.bracketFormat === BracketFormat.TWO_STAGE
     ) {
-      await this.generateRoundRobinStage(
-        tournament.id,
-        tournament.gameTitle,
-        universities,
-      );
+      await this.generateRoundRobinStage(tournament.id, series, universities);
       return;
     }
 
     if (tournament.bracketFormat === BracketFormat.DOUBLE_ELIM) {
       await this.generateDoubleEliminationRound1(
         tournament.id,
-        tournament.gameTitle,
+        series,
         universities,
       );
       return;
@@ -1099,12 +1100,7 @@ export class TournamentsService {
       : await this.seedByRating(universities, tournament.gameTitle);
 
     await this.prisma.match.createMany({
-      data: this.buildEliminationSkeleton(
-        tournament.id,
-        tournament.gameTitle,
-        seeded,
-        null,
-      ),
+      data: this.buildEliminationSkeleton(tournament.id, series, seeded, null),
     });
   }
 
@@ -1191,7 +1187,7 @@ export class TournamentsService {
   // of one lonely round that only sprouts the next once every result is in.
   private buildEliminationSkeleton(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     seeded: string[],
     bracketSide: BracketSide | null,
   ) {
@@ -1200,19 +1196,34 @@ export class TournamentsService {
     const byeTeams = seeded.slice(0, byeCount);
     const playing = seeded.slice(byeCount);
 
+    const totalRounds = Math.log2(bracketSize);
+    const tierAt = (round: number) =>
+      tierForEliminationRound(round, totalRounds);
+
     const rows = byeTeams.map((t, i) =>
-      this.matchRow(tournamentId, gameTitle, t, null, 1, bracketSide, i, true),
+      this.matchRow(
+        tournamentId,
+        series,
+        t,
+        null,
+        1,
+        bracketSide,
+        i,
+        tierAt(1),
+        true,
+      ),
     );
     for (let i = 0; i < playing.length / 2; i++) {
       rows.push(
         this.matchRow(
           tournamentId,
-          gameTitle,
+          series,
           playing[i],
           playing[playing.length - 1 - i],
           1,
           bracketSide,
           byeCount + i,
+          tierAt(1),
           false,
         ),
       );
@@ -1229,18 +1240,32 @@ export class TournamentsService {
         rows.push(
           this.matchRow(
             tournamentId,
-            gameTitle,
+            series,
             null,
             null,
             round,
             bracketSide,
             slot,
+            tierAt(round),
           ),
         );
       }
     }
 
     return rows;
+  }
+
+  private seriesContextFor(
+    tournament: { gameTitle: GameTitle | null } & SeriesOverrides,
+  ): SeriesContext {
+    return {
+      gameTitle: tournament.gameTitle,
+      overrides: {
+        bestOfEarly: tournament.bestOfEarly,
+        bestOfLate: tournament.bestOfLate,
+        bestOfFinal: tournament.bestOfFinal,
+      },
+    };
   }
 
   private pairUp<T>(list: T[]): [T, T][] {
@@ -1253,19 +1278,20 @@ export class TournamentsService {
 
   private matchRow(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     winnerId: string | null,
     loserId: string | null,
     round: number,
     bracketSide: BracketSide | null,
     slot: number,
+    tier: SeriesTier,
     isVerified = false,
   ) {
     return {
       // The match's own title is what the OCR scan is parsed as, so a
       // VALORANT tournament must not stamp its matches LOL. Titleless
       // tournaments are legacy rows; LOL is their historical default.
-      title: gameTitle ?? GameTitle.LOL,
+      title: series.gameTitle ?? GameTitle.LOL,
       matchMode: MatchMode.TOURNAMENT,
       tournamentId,
       gameDuration: 0,
@@ -1275,7 +1301,7 @@ export class TournamentsService {
       loserId: loserId ?? undefined,
       isVerified,
       round,
-      bestOf: SERIES_LENGTH[gameTitle ?? GameTitle.LOL],
+      bestOf: seriesLengthFor(tier, series.gameTitle, series.overrides),
       bracketSide: bracketSide ?? undefined,
       slot,
     };
@@ -1286,15 +1312,25 @@ export class TournamentsService {
   // matches for one round/bracket side.
   private async createRound(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     contestantIds: string[],
     round: number,
     bracketSide: BracketSide | null,
+    tier: SeriesTier,
   ) {
     const pairs = this.pairUp(contestantIds);
     await this.prisma.match.createMany({
       data: pairs.map(([a, b], slot) =>
-        this.matchRow(tournamentId, gameTitle, a, b, round, bracketSide, slot),
+        this.matchRow(
+          tournamentId,
+          series,
+          a,
+          b,
+          round,
+          bracketSide,
+          slot,
+          tier,
+        ),
       ),
     });
   }
@@ -1302,7 +1338,7 @@ export class TournamentsService {
   // ROUND ROBIN — every university plays every other university once, all at round 0.
   private async generateRoundRobinStage(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     universities: { id: string }[],
   ) {
     const pairs: [string, string][] = [];
@@ -1314,7 +1350,7 @@ export class TournamentsService {
 
     await this.prisma.match.createMany({
       data: pairs.map(([a, b], slot) =>
-        this.matchRow(tournamentId, gameTitle, a, b, 0, null, slot),
+        this.matchRow(tournamentId, series, a, b, 0, null, slot, 'EARLY'),
       ),
     });
   }
@@ -1341,7 +1377,7 @@ export class TournamentsService {
   // double-elimination playoff bracket at rounds 1+.
   private async advanceTwoStage(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     playoffTeamCount: number | null,
     matches: BracketMatchRow[],
   ) {
@@ -1350,11 +1386,11 @@ export class TournamentsService {
 
     const playoffs = matches.filter((m) => m.round > 0);
     if (playoffs.length === 0) {
-      await this.seedPlayoffs(tournamentId, gameTitle, playoffTeamCount);
+      await this.seedPlayoffs(tournamentId, series, playoffTeamCount);
       return;
     }
 
-    await this.advanceDoubleElimination(tournamentId, gameTitle, playoffs);
+    await this.advanceDoubleElimination(tournamentId, series, playoffs);
   }
 
   private async completeTournament(
@@ -1375,7 +1411,7 @@ export class TournamentsService {
   // can only meet late.
   private async seedPlayoffs(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     playoffTeamCount: number | null,
   ) {
     const standings = await this.standingsService.computeStandings(
@@ -1392,10 +1428,11 @@ export class TournamentsService {
 
     await this.createRound(
       tournamentId,
-      gameTitle,
+      series,
       orderForStandardPairing(ranked.slice(0, bracketSize)),
       1,
       BracketSide.WINNERS,
+      'EARLY',
     );
   }
 
@@ -1403,7 +1440,7 @@ export class TournamentsService {
   // (>=4) so the losers-bracket schedule below divides evenly at every step.
   private async generateDoubleEliminationRound1(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     universities: { id: string }[],
   ) {
     if (!this.isPowerOfTwo(universities.length)) {
@@ -1414,10 +1451,11 @@ export class TournamentsService {
 
     await this.createRound(
       tournamentId,
-      gameTitle,
+      series,
       this.shuffle(universities).map((u) => u.id),
       1,
       BracketSide.WINNERS,
+      'EARLY',
     );
   }
 
@@ -1448,6 +1486,9 @@ export class TournamentsService {
         bracketFormat: true,
         gameTitle: true,
         playoffTeamCount: true,
+        bestOfEarly: true,
+        bestOfLate: true,
+        bestOfFinal: true,
       },
     });
 
@@ -1468,27 +1509,21 @@ export class TournamentsService {
 
     if (matches.length === 0) return;
 
+    const series = this.seriesContextFor(tournament);
+
     if (tournament.bracketFormat === BracketFormat.DOUBLE_ELIM) {
-      await this.advanceDoubleElimination(
-        tournamentId,
-        tournament.gameTitle,
-        matches,
-      );
+      await this.advanceDoubleElimination(tournamentId, series, matches);
     } else if (tournament.bracketFormat === BracketFormat.ROUND_ROBIN) {
       await this.advanceRoundRobin(tournamentId, matches);
     } else if (tournament.bracketFormat === BracketFormat.TWO_STAGE) {
       await this.advanceTwoStage(
         tournamentId,
-        tournament.gameTitle,
+        series,
         tournament.playoffTeamCount,
         matches,
       );
     } else {
-      await this.advanceEliminationLike(
-        tournamentId,
-        tournament.gameTitle,
-        matches,
-      );
+      await this.advanceEliminationLike(tournamentId, series, matches);
     }
   }
 
@@ -1497,7 +1532,7 @@ export class TournamentsService {
   // verified this seeds the single-elim playoff bracket from standings).
   private async advanceEliminationLike(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     matches: BracketMatchRow[],
   ) {
     const bySlot = (a: BracketMatchRow, b: BracketMatchRow) =>
@@ -1537,10 +1572,11 @@ export class TournamentsService {
         // to grow a round at a time - keep those tournaments advancing.
         await this.createRound(
           tournamentId,
-          gameTitle,
+          series,
           winners,
           round + 1,
           null,
+          winners.length === 2 ? 'FINAL' : 'EARLY',
         );
         return;
       }
@@ -1568,7 +1604,7 @@ export class TournamentsService {
 
   private async advanceDoubleElimination(
     tournamentId: string,
-    gameTitle: GameTitle | null,
+    series: SeriesContext,
     matches: BracketMatchRow[],
   ) {
     const wb = matches.filter((m) => m.bracketSide === BracketSide.WINNERS);
@@ -1588,10 +1624,11 @@ export class TournamentsService {
       if (winners.length > 1) {
         await this.createRound(
           tournamentId,
-          gameTitle,
+          series,
           winners,
           wbRoundsCount + 1,
           BracketSide.WINNERS,
+          winners.length === 2 ? 'LATE' : 'EARLY',
         );
       } else {
         wbChampion = winners[0] ?? null;
@@ -1600,6 +1637,8 @@ export class TournamentsService {
 
     // 2. Advance the losers bracket per the precomputed schedule.
     const schedule = this.losersBracketSchedule(wbRoundsCount);
+    const lbTier = (round: number): SeriesTier =>
+      round >= schedule.length ? 'LATE' : 'EARLY';
     const lbRoundsDone = Math.max(0, ...lb.map((m) => m.round));
     let lbChampion: string | null = null;
 
@@ -1621,10 +1660,11 @@ export class TournamentsService {
           if (losers.length > 1) {
             await this.createRound(
               tournamentId,
-              gameTitle,
+              series,
               losers,
               nextRound,
               BracketSide.LOSERS,
+              lbTier(nextRound),
             );
           }
         }
@@ -1639,10 +1679,11 @@ export class TournamentsService {
             if (survivors.length > 1) {
               await this.createRound(
                 tournamentId,
-                gameTitle,
+                series,
                 survivors,
                 nextRound,
                 BracketSide.LOSERS,
+                lbTier(nextRound),
               );
             }
           } else {
@@ -1662,12 +1703,13 @@ export class TournamentsService {
                   data: pairs.map(([a, b], slot) =>
                     this.matchRow(
                       tournamentId,
-                      gameTitle,
+                      series,
                       a,
                       b,
                       nextRound,
                       BracketSide.LOSERS,
                       slot,
+                      lbTier(nextRound),
                     ),
                   ),
                 });
@@ -1683,10 +1725,11 @@ export class TournamentsService {
     if (wbChampion && lbChampion && gf.length === 0) {
       await this.createRound(
         tournamentId,
-        gameTitle,
+        series,
         [wbChampion, lbChampion],
         wbRoundsCount + 1,
         BracketSide.GRAND_FINAL,
+        'FINAL',
       );
       return;
     }
@@ -1701,10 +1744,11 @@ export class TournamentsService {
     if (gf.length === 1 && wbChampion && decider.winnerId !== wbChampion) {
       await this.createRound(
         tournamentId,
-        gameTitle,
+        series,
         [wbChampion, decider.winnerId!],
         decider.round + 1,
         BracketSide.GRAND_FINAL,
+        'FINAL',
       );
       return;
     }
