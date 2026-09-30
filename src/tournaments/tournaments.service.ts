@@ -297,6 +297,10 @@ export class TournamentsService {
         gameTitle: createTournamentDto.gameTitle,
         bracketFormat: createTournamentDto.bracketFormat,
         playoffTeamCount: createTournamentDto.playoffTeamCount,
+        playoffBracket: createTournamentDto.playoffBracket,
+        bestOfEarly: createTournamentDto.bestOfEarly,
+        bestOfLate: createTournamentDto.bestOfLate,
+        bestOfFinal: createTournamentDto.bestOfFinal,
         teamQuota: createTournamentDto.teamQuota,
         rules: createTournamentDto.rules,
         startDate: createTournamentDto.startDate
@@ -360,6 +364,13 @@ export class TournamentsService {
           updateTournamentDto.bracketFormat ?? tournament.bracketFormat,
         playoffTeamCount:
           updateTournamentDto.playoffTeamCount ?? tournament.playoffTeamCount,
+        playoffBracket:
+          updateTournamentDto.playoffBracket ?? tournament.playoffBracket,
+        bestOfEarly:
+          updateTournamentDto.bestOfEarly ?? tournament.bestOfEarly,
+        bestOfLate: updateTournamentDto.bestOfLate ?? tournament.bestOfLate,
+        bestOfFinal:
+          updateTournamentDto.bestOfFinal ?? tournament.bestOfFinal,
         teamQuota: updateTournamentDto.teamQuota ?? tournament.teamQuota,
         rules: updateTournamentDto.rules ?? tournament.rules,
         startDate: updateTournamentDto.startDate
