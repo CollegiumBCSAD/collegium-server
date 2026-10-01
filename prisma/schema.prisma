@@ -127,6 +127,7 @@ model User {
   scrimChatMessages       ScrimChatMessage[]
   tournamentChatMessages  TournamentChatMessage[]
   organizedTournaments    Tournament[]             @relation("TournamentOrganizer")
+  organizedEvents         Event[]                  @relation("EventOrganizer")
   tournamentApplications  TournamentApplication[]
   gameHandles             UserGameHandle[]
   newsArticles            NewsArticle[]
@@ -502,4 +503,78 @@ model NewsArticle {
 
   @@index([status, publishedAt])
   @@index([gameTitle, status])
+}
+
+enum EventStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  ONGOING
+  COMPLETED
+}
+
+enum EventTeamStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Event {
+  id             String        @id @default(uuid())
+  name           String
+  gameTitle      GameTitle
+  bracketFormat  BracketFormat @default(SINGLE_ELIM)
+  inviteCode     String        @unique
+  status         EventStatus   @default(DRAFT)
+  organizerId    String
+  organizer      User          @relation("EventOrganizer", fields: [organizerId], references: [id])
+  signupsCloseAt DateTime?
+  rules          String?
+  maxSubs        Int           @default(2)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  teams          EventTeam[]
+  matches        EventMatch[]
+
+  @@index([organizerId])
+}
+
+model EventTeam {
+  id           String          @id @default(uuid())
+  eventId      String
+  event        Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name         String
+  logo         String?
+  logoPublicId String?
+  captainName  String
+  captainEmail String
+  editToken    String          @unique
+  roster       Json
+  status       EventTeamStatus @default(PENDING)
+  reviewNote   String?
+  seed         Int?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([eventId, name])
+  @@index([eventId, status])
+}
+
+model EventMatch {
+  id       String    @id @default(uuid())
+  eventId  String
+  event    Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  round    Int
+  slot     Int
+  bestOf   Int       @default(3)
+  teamAId  String?
+  teamBId  String?
+  winnerId String?
+  scoreA   Int?
+  scoreB   Int?
+  isBye    Boolean   @default(false)
+  playedAt DateTime?
+
+  @@unique([eventId, round, slot])
+  @@index([eventId])
 }
