@@ -100,5 +100,9 @@ export function buildSingleEliminationBracket(
 }
 
 export function nextSlotFor(round: number, slot: number) {
-  return { round: round + 1, slot: Math.floor(slot / 2), isTeamA: slot % 2 === 0 };
+  return {
+    round: round + 1,
+    slot: Math.floor(slot / 2),
+    isTeamA: slot % 2 === 0,
+  };
 }

@@ -366,11 +366,9 @@ export class TournamentsService {
           updateTournamentDto.playoffTeamCount ?? tournament.playoffTeamCount,
         playoffBracket:
           updateTournamentDto.playoffBracket ?? tournament.playoffBracket,
-        bestOfEarly:
-          updateTournamentDto.bestOfEarly ?? tournament.bestOfEarly,
+        bestOfEarly: updateTournamentDto.bestOfEarly ?? tournament.bestOfEarly,
         bestOfLate: updateTournamentDto.bestOfLate ?? tournament.bestOfLate,
-        bestOfFinal:
-          updateTournamentDto.bestOfFinal ?? tournament.bestOfFinal,
+        bestOfFinal: updateTournamentDto.bestOfFinal ?? tournament.bestOfFinal,
         teamQuota: updateTournamentDto.teamQuota ?? tournament.teamQuota,
         rules: updateTournamentDto.rules ?? tournament.rules,
         startDate: updateTournamentDto.startDate
@@ -1405,9 +1403,8 @@ export class TournamentsService {
   ) {
     if (!matches.every((m) => m.isVerified)) return;
 
-    const standings = await this.standingsService.computeStandings(
-      tournamentId,
-    );
+    const standings =
+      await this.standingsService.computeStandings(tournamentId);
     await this.completeTournament(
       tournamentId,
       standings[0]?.universityId ?? null,

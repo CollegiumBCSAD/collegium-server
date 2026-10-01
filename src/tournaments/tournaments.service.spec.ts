@@ -548,7 +548,9 @@ describe('TournamentsService', () => {
         twoStageWith(size, 8),
       );
 
-      await expect(service.generateBracket(tournamentId)).resolves.toBeDefined();
+      await expect(
+        service.generateBracket(tournamentId),
+      ).resolves.toBeDefined();
     });
 
     it('accepts a tournament that has no playoff field set', async () => {
@@ -556,7 +558,9 @@ describe('TournamentsService', () => {
         twoStageWith(undefined, 8),
       );
 
-      await expect(service.generateBracket(tournamentId)).resolves.toBeDefined();
+      await expect(
+        service.generateBracket(tournamentId),
+      ).resolves.toBeDefined();
     });
 
     it('should throw BadRequestException if fewer than 2 universities are registered', async () => {
