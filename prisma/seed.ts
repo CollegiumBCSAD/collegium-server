@@ -121,7 +121,7 @@ async function main() {
     captainByShort.set(uni.short, captain.id);
 
     const players: string[] = [];
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 8; i++) {
       const athlete = await prisma.user.create({
         data: {
           email: `player${i}@${uni.domain}`,
@@ -136,7 +136,8 @@ async function main() {
       players.push(athlete.id);
     }
 
-    const rosterIds = [captain.id, ...players];
+    const startingRoster = [captain.id, ...players.slice(0, 4)];
+    const allAthleteIds = [captain.id, ...players];
 
     for (const game of GAMES) {
       const team = await prisma.team.create({
@@ -154,7 +155,7 @@ async function main() {
           min_roster_size: game.minRosterSize,
           max_roster_size: game.maxRosterSize,
           members: {
-            create: rosterIds.map((userId, i) => ({
+            create: startingRoster.map((userId, i) => ({
               userId,
               gameHandle: i === 0 ? `${uni.short}Cap.${game.tag}` : `${uni.short}${game.tag}${i}`,
               preferredRole: game.roles[i],
@@ -165,8 +166,8 @@ async function main() {
       });
       teamByShortGame.set(`${uni.short}:${game.title}`, team.id);
 
-      for (let i = 0; i < rosterIds.length; i++) {
-        const userId = rosterIds[i];
+      for (let i = 0; i < allAthleteIds.length; i++) {
+        const userId = allAthleteIds[i];
         const handle = i === 0 ? `${uni.short}Cap.${game.tag}` : `${uni.short}${game.tag}${i}`;
         await prisma.userGameHandle.upsert({
           where: {
