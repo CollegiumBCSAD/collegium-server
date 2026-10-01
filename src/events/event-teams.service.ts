@@ -89,6 +89,37 @@ export class EventTeamsService {
     return this.present(team);
   }
 
+  /**
+   * Squads whose captain email matches the caller's account. Only verified
+   * emails count, since the result hands back each squad's edit token.
+   */
+  async findForCaptain(user: { email: string; emailVerified: boolean }) {
+    if (!user.emailVerified) {
+      return [];
+    }
+
+    const teams = await this.prisma.eventTeam.findMany({
+      where: { captainEmail: user.email.toLowerCase().trim() },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        reviewNote: true,
+        editToken: true,
+        eventId: true,
+        createdAt: true,
+        roster: true,
+        event: { select: { name: true, gameTitle: true, status: true } },
+      },
+    });
+
+    return teams.map(({ roster, ...team }) => ({
+      ...team,
+      playerCount: this.readRoster({ roster }).length,
+    }));
+  }
+
   async updateByEditToken(token: string, dto: UpdateEventTeamDto) {
     const team = await this.prisma.eventTeam.findUnique({
       where: { editToken: token },

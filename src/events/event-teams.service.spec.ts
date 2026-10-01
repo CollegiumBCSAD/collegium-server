@@ -215,6 +215,37 @@ describe('EventTeamsService', () => {
     });
   });
 
+  describe('findForCaptain', () => {
+    it('returns nothing for an unverified email without querying', async () => {
+      await expect(
+        service.findForCaptain({
+          email: 'juan@umak.edu.ph',
+          emailVerified: false,
+        }),
+      ).resolves.toEqual([]);
+      expect(mockPrismaService.eventTeam.findMany).not.toHaveBeenCalled();
+    });
+
+    it('matches the lowercased email and swaps the roster for a count', async () => {
+      mockPrismaService.eventTeam.findMany.mockResolvedValue([
+        { id: 'team-1', name: 'Byte Force', roster: squad(5, 1) },
+      ]);
+
+      const result = await service.findForCaptain({
+        email: 'JUAN@umak.edu.ph',
+        emailVerified: true,
+      });
+
+      const query = firstCallArg<{ where: { captainEmail: string } }>(
+        mockPrismaService.eventTeam.findMany,
+      );
+      expect(query.where.captainEmail).toBe('juan@umak.edu.ph');
+      expect(result).toEqual([
+        { id: 'team-1', name: 'Byte Force', playerCount: 6 },
+      ]);
+    });
+  });
+
   describe('generateEditToken', () => {
     it('produces distinct url-safe tokens', () => {
       const tokens = new Set(

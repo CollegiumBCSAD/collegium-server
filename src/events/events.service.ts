@@ -64,6 +64,15 @@ export class EventsService {
     return event;
   }
 
+  /** Squads, matches and documents go with it via onDelete: Cascade. */
+  async deleteEvent(id: string, user: RequestingUser) {
+    const event = await this.prisma.event.findUnique({ where: { id } });
+    this.assertOwned(event, user);
+
+    await this.prisma.event.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
   async updateEvent(id: string, user: RequestingUser, dto: UpdateEventDto) {
     const event = await this.prisma.event.findUnique({ where: { id } });
     this.assertOwned(event, user);
