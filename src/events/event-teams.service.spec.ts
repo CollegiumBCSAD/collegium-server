@@ -4,6 +4,7 @@ import { EventStatus, EventTeamStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from './events.service';
 import { EventTeamsService, RosterEntry } from './event-teams.service';
+import { RosterPlayerDto } from './dto/event-team.dto';
 
 const firstCallArg = <T>(fn: jest.Mock): T =>
   (fn.mock.calls as unknown[][])[0][0] as T;
@@ -26,7 +27,7 @@ const openEvent = {
   maxSubs: 2,
 };
 
-const player = (i: number, isSubstitute = false) => ({
+const player = (i: number, isSubstitute = false): RosterPlayerDto => ({
   fullName: `Player ${i}`,
   studentNumber: `2021-0000${i}`,
   ign: `ign${i}`,
