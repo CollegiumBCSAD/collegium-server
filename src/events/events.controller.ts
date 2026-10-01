@@ -30,9 +30,11 @@ import {
   UpdateEventTeamDto,
 } from './dto/event-team.dto';
 import { UploadEventDocumentDto } from './dto/event-document.dto';
+import { ReportEventResultDto } from './dto/event-match.dto';
 import { EventsService, RequestingUser } from './events.service';
 import { EventTeamsService } from './event-teams.service';
 import { EventDocumentsService } from './event-documents.service';
+import { EventBracketService } from './event-bracket.service';
 import { DOCUMENT_UPLOAD_OPTIONS } from './upload-options';
 
 interface AuthenticatedRequest {
@@ -47,6 +49,7 @@ export class EventsController {
     private readonly eventsService: EventsService,
     private readonly eventTeamsService: EventTeamsService,
     private readonly eventDocumentsService: EventDocumentsService,
+    private readonly eventBracketService: EventBracketService,
   ) {}
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
@@ -171,6 +174,42 @@ export class EventsController {
     @Body() dto: ReviewEventTeamDto,
   ) {
     return this.eventTeamsService.review(id, teamId, req.user, dto);
+  }
+
+  @Public()
+  @Get(':id/bracket')
+  @ApiOperation({ summary: 'Read the public bracket for an event' })
+  getBracket(@Param('id') id: string) {
+    return this.eventBracketService.getBracket(id);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Post(':id/bracket')
+  @ApiOperation({ summary: 'Generate the bracket and lock sign-ups' })
+  generateBracket(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.eventBracketService.generate(id, req.user);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Patch(':id/matches/:matchId')
+  @ApiOperation({ summary: 'Report a match result and advance the winner' })
+  reportResult(
+    @Param('id') id: string,
+    @Param('matchId') matchId: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ReportEventResultDto,
+  ) {
+    return this.eventBracketService.reportResult(id, matchId, req.user, dto);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Post(':id/close')
+  @ApiOperation({ summary: 'Close the event and purge player documents' })
+  closeEvent(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    return this.eventBracketService.close(id, req.user);
   }
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
