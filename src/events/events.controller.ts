@@ -1,13 +1,25 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
   Post,
   Request,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -16,8 +28,11 @@ import {
   SubmitEventTeamDto,
   UpdateEventTeamDto,
 } from './dto/event-team.dto';
+import { UploadEventDocumentDto } from './dto/event-document.dto';
 import { EventsService, RequestingUser } from './events.service';
 import { EventTeamsService } from './event-teams.service';
+import { EventDocumentsService } from './event-documents.service';
+import { DOCUMENT_UPLOAD_OPTIONS } from './upload-options';
 
 interface AuthenticatedRequest {
   user: RequestingUser;
@@ -30,6 +45,7 @@ export class EventsController {
   constructor(
     private readonly eventsService: EventsService,
     private readonly eventTeamsService: EventTeamsService,
+    private readonly eventDocumentsService: EventDocumentsService,
   ) {}
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
@@ -75,6 +91,66 @@ export class EventsController {
     @Body() dto: UpdateEventTeamDto,
   ) {
     return this.eventTeamsService.updateByEditToken(editToken, dto);
+  }
+
+  @Public()
+  @Post('teams/:editToken/documents')
+  @UseInterceptors(FileInterceptor('file', DOCUMENT_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a player document with the edit token' })
+  uploadDocument(
+    @Param('editToken') editToken: string,
+    @Body() dto: UploadEventDocumentDto,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.eventDocumentsService.uploadByEditToken(
+      editToken,
+      dto.rosterPlayerId,
+      dto.kind,
+      file,
+    );
+  }
+
+  @Public()
+  @Get('teams/:editToken/documents')
+  @ApiOperation({ summary: 'List uploaded documents for a squad' })
+  listDocuments(@Param('editToken') editToken: string) {
+    return this.eventDocumentsService.listByEditToken(editToken);
+  }
+
+  @Public()
+  @Delete('teams/:editToken/documents/:documentId')
+  @ApiOperation({ summary: 'Remove an uploaded document' })
+  deleteDocument(
+    @Param('editToken') editToken: string,
+    @Param('documentId') documentId: string,
+  ) {
+    return this.eventDocumentsService.deleteByEditToken(editToken, documentId);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Get(':id/documents/:documentId')
+  @ApiOperation({ summary: 'Download a squad document as the organizer' })
+  async readDocument(
+    @Param('id') id: string,
+    @Param('documentId') documentId: string,
+    @Request() req: AuthenticatedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const document = await this.eventDocumentsService.readForOrganizer(
+      id,
+      documentId,
+      req.user,
+    );
+
+    res.set({
+      'Content-Type': document.mimeType,
+      'Content-Disposition': `inline; filename="${encodeURIComponent(document.filename)}"`,
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store',
+    });
+
+    return new StreamableFile(Buffer.from(document.data));
   }
 
   @Roles(Role.ADMIN, Role.ORGANIZER)

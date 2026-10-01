@@ -519,6 +519,11 @@ enum EventTeamStatus {
   REJECTED
 }
 
+enum EventDocumentKind {
+  COR
+  SCHOOL_ID
+}
+
 model Event {
   id             String        @id @default(uuid())
   name           String
@@ -555,6 +560,7 @@ model EventTeam {
   seed         Int?
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
+  documents    EventDocument[]
 
   @@unique([eventId, name])
   @@index([eventId, status])
@@ -577,4 +583,20 @@ model EventMatch {
 
   @@unique([eventId, round, slot])
   @@index([eventId])
+}
+
+model EventDocument {
+  id             String            @id @default(uuid())
+  teamId         String
+  team           EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  rosterPlayerId String
+  kind           EventDocumentKind
+  filename       String
+  mimeType       String
+  sizeBytes      Int
+  data           Bytes
+  uploadedAt     DateTime          @default(now())
+
+  @@unique([teamId, rosterPlayerId, kind])
+  @@index([teamId])
 }
