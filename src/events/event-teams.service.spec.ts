@@ -5,6 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from './events.service';
 import { EventTeamsService, RosterEntry } from './event-teams.service';
 
+const firstCallArg = <T>(fn: jest.Mock): T =>
+  (fn.mock.calls as unknown[][])[0][0] as T;
+
 const mockPrismaService = {
   event: { findUnique: jest.fn() },
   eventTeam: {
@@ -191,8 +194,9 @@ describe('EventTeamsService', () => {
     it('sends an edited squad back for review', async () => {
       await service.updateByEditToken('token', submission());
 
-      const call = mockPrismaService.eventTeam.update.mock
-        .calls[0][0] as { data: { status: EventTeamStatus } };
+      const call = firstCallArg<{ data: { status: EventTeamStatus } }>(
+        mockPrismaService.eventTeam.update,
+      );
       expect(call.data.status).toBe(EventTeamStatus.PENDING);
     });
 
