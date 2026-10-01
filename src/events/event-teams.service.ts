@@ -10,6 +10,7 @@ import { EventStatus, EventTeamStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService, RequestingUser } from './events.service';
 import {
+  ReviewEventTeamDto,
   RosterPlayerDto,
   SubmitEventTeamDto,
   UpdateEventTeamDto,
@@ -139,6 +140,37 @@ export class EventTeamsService {
     return this.prisma.eventTeam.findMany({
       where: { eventId },
       orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async review(
+    eventId: string,
+    teamId: string,
+    user: RequestingUser,
+    dto: ReviewEventTeamDto,
+  ) {
+    await this.eventsService.findOneForOrganizer(eventId, user);
+
+    const team = await this.prisma.eventTeam.findFirst({
+      where: { id: teamId, eventId },
+    });
+
+    if (!team) {
+      throw new NotFoundException('Squad not found');
+    }
+
+    if (dto.status === EventTeamStatus.REJECTED && !dto.reviewNote) {
+      throw new BadRequestException(
+        'Tell the captain why the squad was rejected',
+      );
+    }
+
+    return this.prisma.eventTeam.update({
+      where: { id: team.id },
+      data: {
+        status: dto.status,
+        reviewNote: dto.reviewNote ?? null,
+      },
     });
   }
 

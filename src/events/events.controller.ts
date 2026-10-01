@@ -25,6 +25,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { CreateEventDto, UpdateEventDto } from './dto/event.dto';
 import {
+  ReviewEventTeamDto,
   SubmitEventTeamDto,
   UpdateEventTeamDto,
 } from './dto/event-team.dto';
@@ -158,6 +159,18 @@ export class EventsController {
   @ApiOperation({ summary: 'List squads registered for an event' })
   findTeams(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
     return this.eventTeamsService.findAllForEvent(id, req.user);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Patch(':id/teams/:teamId/review')
+  @ApiOperation({ summary: 'Approve or reject a squad' })
+  reviewTeam(
+    @Param('id') id: string,
+    @Param('teamId') teamId: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: ReviewEventTeamDto,
+  ) {
+    return this.eventTeamsService.review(id, teamId, req.user, dto);
   }
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
