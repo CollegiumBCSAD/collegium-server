@@ -1209,48 +1209,41 @@ export class TournamentsService {
     series: SeriesContext,
     seeded: string[],
     bracketSide: BracketSide | null,
-    // Default pairs strongest against weakest within the round. Pass true when
-    // `seeded` has already been arranged by orderForStandardPairing, so slot
-    // order is preserved and the top two seeds can only meet in the final.
+    // Pass true when `seeded` is already a power of two arranged by
+    // orderForStandardPairing. Otherwise the field is padded with byes and
+    // arranged here, so the top two seeds can only meet in the final.
     preArranged = false,
   ) {
     const bracketSize = this.nextPowerOfTwo(seeded.length);
-    const byeCount = bracketSize - seeded.length;
-    const byeTeams = seeded.slice(0, byeCount);
-    const playing = seeded.slice(byeCount);
 
     const totalRounds = Math.log2(bracketSize);
     const tierAt = (round: number) =>
       tierForEliminationRound(round, totalRounds);
 
-    const rows = byeTeams.map((t, i) =>
-      this.matchRow(
-        tournamentId,
-        series,
-        t,
-        null,
-        1,
-        bracketSide,
-        i,
-        tierAt(1),
-        true,
-      ),
-    );
-    for (let i = 0; i < playing.length / 2; i++) {
-      const [a, b] = preArranged
-        ? [playing[i * 2], playing[i * 2 + 1]]
-        : [playing[i], playing[playing.length - 1 - i]];
+    const field: (string | null)[] = preArranged
+      ? seeded
+      : orderForStandardPairing([
+          ...seeded,
+          ...(Array(bracketSize - seeded.length).fill(null) as null[]),
+        ]);
+
+    const rows: ReturnType<typeof this.matchRow>[] = [];
+    for (let slot = 0; slot < bracketSize / 2; slot++) {
+      const a = field[slot * 2];
+      const b = field[slot * 2 + 1];
+      const isBye = a === null || b === null;
+
       rows.push(
         this.matchRow(
           tournamentId,
           series,
-          a,
-          b,
+          isBye ? (a ?? b) : a,
+          isBye ? null : b,
           1,
           bracketSide,
-          byeCount + i,
+          slot,
           tierAt(1),
-          false,
+          isBye,
         ),
       );
     }

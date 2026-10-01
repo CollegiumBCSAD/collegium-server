@@ -672,6 +672,74 @@ describe('TournamentsService', () => {
       expect(data.every((m) => m.title === GameTitle.VALORANT)).toBe(true);
     });
 
+    it.each([3, 5, 6, 7, 11, 13])(
+      'keeps the top two seeds in opposite halves with %i universities',
+      async (count) => {
+        mockPrismaService.tournament.findUnique
+          .mockResolvedValueOnce({
+            id: tournamentId,
+            status: TournamentStatus.UPCOMING,
+            gameTitle: GameTitle.VALORANT,
+            universities: Array.from({ length: count }, (_, i) => ({
+              id: `uni-${i + 1}`,
+            })),
+          })
+          .mockResolvedValueOnce({
+            id: tournamentId,
+            matches: [],
+            universities: [],
+          });
+        mockPrismaService.team.findMany.mockResolvedValue(
+          Array.from({ length: count }, (_, i) => ({
+            universityId: `uni-${i + 1}`,
+            glicko2_rating: 2000 - i,
+          })),
+        );
+        mockPrismaService.match.createMany.mockResolvedValue({ count: 0 });
+        mockPrismaService.tournament.update.mockResolvedValue({});
+
+        await service.generateBracket(tournamentId);
+
+        const { data } = (
+          mockPrismaService.match.createMany.mock.calls[0] as [
+            {
+              data: Array<{
+                round: number;
+                slot: number;
+                winnerId?: string;
+                loserId?: string;
+                isVerified?: boolean;
+              }>;
+            },
+          ]
+        )[0];
+
+        const roundOne = data.filter((m) => m.round === 1);
+        const bracketSize = roundOne.length * 2;
+        const finalRound = Math.log2(bracketSize);
+
+        expect(roundOne.filter((m) => !m.loserId)).toHaveLength(
+          bracketSize - count,
+        );
+        expect(
+          roundOne.filter((m) => !m.loserId).every((m) => m.isVerified),
+        ).toBe(true);
+
+        const halfOf = (universityId: string) => {
+          const row = roundOne.find(
+            (m) => m.winnerId === universityId || m.loserId === universityId,
+          )!;
+          let slot = row.slot;
+          for (let round = 1; round <= finalRound - 2; round++) {
+            slot = Math.floor(slot / 2);
+          }
+          return slot;
+        };
+
+        expect(halfOf('uni-1')).not.toBe(halfOf('uni-2'));
+      },
+    );
+
     it('should throw BadRequestException if tournament is not UPCOMING', async () => {
       mockPrismaService.tournament.findUnique.mockResolvedValue({
         id: tournamentId,
