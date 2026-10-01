@@ -182,6 +182,77 @@ export class EventBracketService {
     return this.getBracket(eventId);
   }
 
+  /**
+   * Undo a reported result: clears the score and pulls the winner back out of
+   * the next round. Only allowed while that next match is still unplayed, so
+   * mistakes are unwound one round at a time and nothing downstream is lost.
+   */
+  async clearResult(eventId: string, matchId: string, user: RequestingUser) {
+    await this.eventsService.findOneForOrganizer(eventId, user);
+
+    const match = await this.prisma.eventMatch.findFirst({
+      where: { id: matchId, eventId },
+    });
+
+    if (!match) {
+      throw new NotFoundException('Match not found');
+    }
+
+    if (match.isBye) {
+      throw new BadRequestException('A bye advances automatically');
+    }
+
+    if (!match.winnerId) {
+      throw new BadRequestException('This match has no result to undo');
+    }
+
+    const { round, slot, isTeamA } = nextSlotFor(match.round, match.slot);
+    const next = await this.prisma.eventMatch.findUnique({
+      where: { eventId_round_slot: { eventId, round, slot } },
+    });
+
+    if (next?.winnerId) {
+      throw new BadRequestException(
+        'The next match already has a result. Undo that one first.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const cleared = await tx.eventMatch.updateMany({
+        where: { id: match.id, winnerId: match.winnerId },
+        data: { winnerId: null, scoreA: null, scoreB: null, playedAt: null },
+      });
+
+      if (cleared.count === 0) {
+        throw new BadRequestException(
+          'This result changed while you were undoing it. Refresh and try again.',
+        );
+      }
+
+      if (next) {
+        await tx.eventMatch.update({
+          where: { id: next.id },
+          data: isTeamA ? { teamAId: null } : { teamBId: null },
+        });
+      }
+
+      // Back to LOCKED when no real result is left, otherwise still ONGOING
+      // (this also reopens an event whose final was just undone).
+      const remaining = await tx.eventMatch.count({
+        where: { eventId, isBye: false, winnerId: { not: null } },
+      });
+
+      await tx.event.update({
+        where: { id: eventId },
+        data: {
+          status: remaining > 0 ? EventStatus.ONGOING : EventStatus.LOCKED,
+        },
+      });
+    });
+
+    return this.getBracket(eventId);
+  }
+
   async close(eventId: string, user: RequestingUser) {
     await this.eventsService.findOneForOrganizer(eventId, user);
 

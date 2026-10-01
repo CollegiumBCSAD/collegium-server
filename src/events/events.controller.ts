@@ -41,6 +41,10 @@ interface AuthenticatedRequest {
   user: RequestingUser;
 }
 
+interface CaptainRequest {
+  user: { email: string; emailVerified: boolean };
+}
+
 @ApiTags('Events')
 @ApiBearerAuth()
 @Controller('events')
@@ -64,6 +68,15 @@ export class EventsController {
   @ApiOperation({ summary: 'List events the caller organizes' })
   findAll(@Request() req: AuthenticatedRequest) {
     return this.eventsService.findAllForUser(req.user);
+  }
+
+  // Declared before ':id' so the literal path wins.
+  @Get('my-squads')
+  @ApiOperation({
+    summary: 'List invite-only squads the caller captains (by verified email)',
+  })
+  findMySquads(@Request() req: CaptainRequest) {
+    return this.eventTeamsService.findForCaptain(req.user);
   }
 
   @Public()
@@ -206,6 +219,19 @@ export class EventsController {
   }
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Delete(':id/matches/:matchId/result')
+  @ApiOperation({
+    summary: 'Undo a reported result while the next match is unplayed',
+  })
+  clearResult(
+    @Param('id') id: string,
+    @Param('matchId') matchId: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.eventBracketService.clearResult(id, matchId, req.user);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
   @Post(':id/close')
   @ApiOperation({ summary: 'Close the event and purge player documents' })
   closeEvent(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
@@ -228,5 +254,14 @@ export class EventsController {
     @Body() dto: UpdateEventDto,
   ) {
     return this.eventsService.updateEvent(id, req.user, dto);
+  }
+
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Delete an event with its squads, matches and documents',
+  })
+  remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    return this.eventsService.deleteEvent(id, req.user);
   }
 }
