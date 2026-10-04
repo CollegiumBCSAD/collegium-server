@@ -8,6 +8,7 @@ datasource db {
 
 enum Role {
   ATHLETE
+  COACH
   NON_ATHLETE
   ADMIN
   ORGANIZER
@@ -81,6 +82,71 @@ enum NotificationType {
   TEAM_REQUEST_DECLINED
   TOURNAMENT_APPROVED
   TOURNAMENT_REJECTED
+  COACH_ACCOUNT_APPROVED
+  COACH_ACCOUNT_REJECTED
+  COACH_INVITE_RECEIVED
+  COACH_INVITE_ACCEPTED
+  COACH_INVITE_DECLINED
+  PRACTICE_SCHEDULED
+  ROSTER_MEMBER_REMOVED
+  ROSTER_CHANGE_REQUESTED
+  ROSTER_CHANGE_APPROVED
+  ROSTER_CHANGE_REJECTED
+}
+
+enum RosterChangeReason {
+  INJURY
+  ILLNESS
+  ACADEMIC
+  PERSONAL_EMERGENCY
+  ELIGIBILITY
+  TECHNICAL
+  OTHER
+}
+
+enum RosterChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TeamInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum PracticeResult {
+  WIN
+  LOSS
+}
+
+enum PracticeRecordSource {
+  OCR
+  MANUAL
+}
+
+enum TeamAuditAction {
+  TEAM_CREATED
+  COACH_INVITE_SENT
+  COACH_INVITE_ACCEPTED
+  COACH_REMOVED
+  TOURNAMENT_REGISTERED
+  TOURNAMENT_WITHDRAWN
+  PRACTICE_SCHEDULED
+  PRACTICE_UPDATED
+  PRACTICE_CANCELLED
+  PRACTICE_RECORD_LOGGED
+  ROSTER_MEMBER_UPDATED
+  ROSTER_MEMBER_REMOVED
+  CAPTAIN_TRANSFERRED
+  ROSTER_CHANGE_REQUESTED
+  ROSTER_CHANGE_APPROVED
+  ROSTER_CHANGE_REJECTED
+  ROSTER_CHANGE_CANCELLED
 }
 
 model University {
@@ -119,6 +185,16 @@ model User {
   universityId            String
   university              University               @relation(fields: [universityId], references: [id])
   captainTeams            Team[]                   @relation("TeamCaptain")
+  coachedTeams            Team[]                   @relation("TeamCoach")
+  coachInvitations        TeamInvitation[]         @relation("InvitedCoach")
+  sentTeamInvitations     TeamInvitation[]         @relation("InvitationSender")
+  practiceSchedules       PracticeSchedule[]
+  practiceRecords         PracticeRecord[]
+  teamAuditLogs           TeamAuditLog[]
+  rosterChangesRequested  RosterChangeRequest[]    @relation("RosterChangeRequester")
+  rosterChangesReviewed   RosterChangeRequest[]    @relation("RosterChangeReviewer")
+  rosterChangesOut        RosterChangeRequest[]    @relation("RosterChangeOut")
+  rosterChangesIn         RosterChangeRequest[]    @relation("RosterChangeIn")
   teamMemberships         TeamMember[]
   playerStats             PlayerStat[]
   refreshTokens           RefreshToken[]
@@ -140,8 +216,14 @@ model Team {
   gameTitle              GameTitle
   universityId           String
   university             University              @relation(fields: [universityId], references: [id])
-  captainId              String
-  captain                User                    @relation("TeamCaptain", fields: [captainId], references: [id])
+  // Null only for a squad a coach created before any athlete joined; the
+  // first athlete accepted onto the roster becomes captain.
+  captainId              String?
+  captain                User?                   @relation("TeamCaptain", fields: [captainId], references: [id])
+  // One active coach per team. The coach is never a TeamMember, so they
+  // cannot also hold a player slot on the same roster.
+  coachId                String?
+  coach                  User?                   @relation("TeamCoach", fields: [coachId], references: [id], onDelete: SetNull)
   inviteCode             String                  @unique
   glicko2_rating         Float                   @default(1500)
   glicko2_rd             Float                   @default(350)
@@ -156,6 +238,118 @@ model Team {
   acceptedScrims         Scrim[]                 @relation("ScrimOpponent")
   tournamentApplications TournamentApplication[]
   ratingHistory          RatingHistory[]
+  invitations            TeamInvitation[]
+  practiceSchedules      PracticeSchedule[]
+  practiceRecords        PracticeRecord[]
+  auditLogs              TeamAuditLog[]
+  rosterChanges          RosterChangeRequest[]
+
+  @@index([coachId])
+}
+
+// A last-minute substitution on a lineup already submitted to a tournament.
+// The captain or coach files it with a reason; the tournament's organizer
+// (or an admin) approves it, which rewrites the application's rosterSnapshot.
+model RosterChangeRequest {
+  id            String                @id @default(uuid())
+  applicationId String
+  application   TournamentApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  teamId        String
+  team          Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  tournamentId  String
+  tournament    Tournament            @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  outUserId     String
+  outUser       User                  @relation("RosterChangeOut", fields: [outUserId], references: [id], onDelete: Cascade)
+  inUserId      String
+  inUser        User                  @relation("RosterChangeIn", fields: [inUserId], references: [id], onDelete: Cascade)
+  reason        RosterChangeReason
+  details       String
+  status        RosterChangeStatus    @default(PENDING)
+  requestedById String
+  requestedBy   User                  @relation("RosterChangeRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  reviewedById  String?
+  reviewedBy    User?                 @relation("RosterChangeReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNote    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@index([tournamentId, status])
+  @@index([teamId, createdAt])
+}
+
+// A captain (or admin) inviting an approved coach onto a team. Accepting
+// sets Team.coachId; it is closed once declined, cancelled, or past expiresAt.
+model TeamInvitation {
+  id          String               @id @default(uuid())
+  teamId      String
+  team        Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  coachId     String
+  coach       User                 @relation("InvitedCoach", fields: [coachId], references: [id], onDelete: Cascade)
+  invitedById String
+  invitedBy   User                 @relation("InvitationSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  status      TeamInvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  respondedAt DateTime?
+  createdAt   DateTime             @default(now())
+
+  @@index([coachId, status])
+  @@index([teamId, status])
+}
+
+model PracticeSchedule {
+  id          String           @id @default(uuid())
+  teamId      String
+  team        Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title       String
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  notes       String?
+  createdById String
+  createdBy   User             @relation(fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  records     PracticeRecord[]
+
+  @@index([teamId, startsAt])
+}
+
+// Unranked scrim outcome logged by a coach. Win/loss and completion only —
+// never read by the rating engine.
+model PracticeRecord {
+  id            String               @id @default(uuid())
+  teamId        String
+  team          Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  scheduleId    String?
+  schedule      PracticeSchedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  opponentName  String?
+  result        PracticeResult
+  completed     Boolean              @default(true)
+  source        PracticeRecordSource
+  ocrConfidence Float?
+  notes         String?
+  loggedById    String
+  loggedBy      User                 @relation(fields: [loggedById], references: [id])
+  playedAt      DateTime             @default(now())
+  createdAt     DateTime             @default(now())
+
+  @@index([teamId, playedAt])
+}
+
+// Append-only trail of coach-tier actions (and captain actions taken in a
+// coach's place when the team has none).
+model TeamAuditLog {
+  id        String          @id @default(uuid())
+  teamId    String?
+  team      Team?           @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  actorId   String
+  actor     User            @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  action    TeamAuditAction
+  details   Json?
+  createdAt DateTime        @default(now())
+
+  @@index([teamId, createdAt])
+  @@index([actorId, createdAt])
 }
 
 model TeamMember {
@@ -312,6 +506,8 @@ model Tournament {
   bestOfLate              Int?
   bestOfFinal             Int?
   teamQuota               Int?
+  // Max squads one university may enter; null means no cap.
+  maxTeamsPerUniversity   Int?
   rules                   String?
   startDate               DateTime?
   organizerId             String?
@@ -334,6 +530,7 @@ model Tournament {
   applications            TournamentApplication[]
   ratingHistories         RatingHistory[]
   chatMessages            TournamentChatMessage[]
+  rosterChanges           RosterChangeRequest[]
 }
 
 model RatingHistory {
@@ -371,6 +568,7 @@ model TournamentApplication {
   teamName       String?
   rosterSnapshot Json?
   appliedAt      DateTime                    @default(now())
+  rosterChanges  RosterChangeRequest[]
 
   @@unique([tournamentId, teamId])
   @@index([tournamentId])
