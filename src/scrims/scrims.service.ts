@@ -266,15 +266,18 @@ export class ScrimsService {
       },
     });
 
-    await this.notificationsService.create({
-      userId: updated.team.captainId,
-      category: NotificationCategory.SCRIM,
-      type: NotificationType.SCRIM_REQUEST_RECEIVED,
-      title: '⏳ Incoming Scrim Request!',
-      message: `${opponentTeam.name} requested to book your scrim offer!`,
-      link: '/scrims',
-      refId: `${updated.id}:${opponentTeam.id}`,
-    });
+    const hostContactId = updated.team.captainId ?? updated.team.coachId;
+    if (hostContactId) {
+      await this.notificationsService.create({
+        userId: hostContactId,
+        category: NotificationCategory.SCRIM,
+        type: NotificationType.SCRIM_REQUEST_RECEIVED,
+        title: '⏳ Incoming Scrim Request!',
+        message: `${opponentTeam.name} requested to book your scrim offer!`,
+        link: '/scrims',
+        refId: `${updated.id}:${opponentTeam.id}`,
+      });
+    }
 
     return {
       ...updated,
@@ -307,9 +310,11 @@ export class ScrimsService {
       },
     });
 
-    if (updated.opponent) {
+    const opponentContactId =
+      updated.opponent?.captainId ?? updated.opponent?.coachId;
+    if (opponentContactId) {
       await this.notificationsService.create({
-        userId: updated.opponent.captainId,
+        userId: opponentContactId,
         category: NotificationCategory.SCRIM,
         type: NotificationType.SCRIM_REQUEST_ACCEPTED,
         title: '🎉 Scrim Match Request Accepted!',
@@ -352,9 +357,11 @@ export class ScrimsService {
         },
       });
 
-      if (scrim.opponent) {
+      const opponentContactId =
+        scrim.opponent?.captainId ?? scrim.opponent?.coachId;
+      if (scrim.opponent && opponentContactId) {
         await this.notificationsService.create({
-          userId: scrim.opponent.captainId,
+          userId: opponentContactId,
           category: NotificationCategory.SCRIM,
           type: wasConfirmed
             ? NotificationType.SCRIM_UNBOOKED
@@ -646,10 +653,12 @@ export class ScrimsService {
       return updatedScrim;
     });
 
-    if (scrim.opponent) {
+    const opponentContactId =
+      scrim.opponent?.captainId ?? scrim.opponent?.coachId;
+    if (scrim.opponent && opponentContactId) {
       await this.notificationsService
         .create({
-          userId: scrim.opponent.captainId,
+          userId: opponentContactId,
           category: NotificationCategory.SCRIM,
           type: NotificationType.SCRIM_REQUEST_ACCEPTED,
           title: '🏆 Scrim Match Log Finalized',
