@@ -139,6 +139,53 @@ describe('AuthService', () => {
       expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
     });
 
+    it('queues a coach registration for admin approval', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'coach-1',
+        email: 'coach@admu.edu.ph',
+        displayName: 'Coach',
+      });
+      mockPrismaService.emailVerificationToken.create.mockResolvedValue({});
+      mockEmailService.sendVerificationEmail.mockResolvedValue(undefined);
+
+      await service.register({
+        ...dto,
+        email: 'coach@admu.edu.ph',
+        role: Role.COACH,
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const createCall = mockPrismaService.user.create.mock.calls[0][0] as {
+        data: { role: Role; status: AccountStatus };
+      };
+      expect(createCall.data.role).toBe(Role.COACH);
+      expect(createCall.data.status).toBe(AccountStatus.PENDING);
+    });
+
+    it('lets a declined coach reapply with the same credentials', async () => {
+      mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: 'coach-1',
+        role: Role.COACH,
+        status: AccountStatus.REJECTED,
+        emailVerified: true,
+        password: 'hashed_password',
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      mockPrismaService.user.update.mockResolvedValue({});
+
+      const result = await service.register({ ...dto, role: Role.COACH });
+
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 'coach-1' },
+        data: { status: AccountStatus.PENDING },
+      });
+      expect(result.message).toMatch(/resubmitted/);
+    });
+
     it('still succeeds even if the verification email fails to send', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
       mockPrismaService.user.findUnique.mockResolvedValue(null);
@@ -374,6 +421,7 @@ describe('AuthService', () => {
           id: 'user-1',
           email: 'student@admu.edu.ph',
           role: Role.ATHLETE,
+          status: AccountStatus.ACTIVE,
           universityId: 'uni-1',
         },
       });
@@ -392,6 +440,30 @@ describe('AuthService', () => {
       });
       expect(result).toHaveProperty('access_token', 'mocked_access_token');
       expect(result).toHaveProperty('refresh_token');
+    });
+
+    it('verifies a pending coach without signing them in', async () => {
+      mockPrismaService.emailVerificationToken.findUnique.mockResolvedValue({
+        tokenHash: 'mocked_token_hash',
+        userId: 'coach-1',
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+        user: {
+          id: 'coach-1',
+          email: 'coach@admu.edu.ph',
+          role: Role.COACH,
+          status: AccountStatus.PENDING,
+          universityId: 'uni-1',
+        },
+      });
+      mockPrismaService.user.update.mockResolvedValue({});
+      mockPrismaService.emailVerificationToken.deleteMany.mockResolvedValue({
+        count: 1,
+      });
+
+      const result = await service.verifyEmail('raw_token');
+
+      expect(result).toEqual({ pendingApproval: true });
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
     });
 
     it('throws BadRequestException if the token does not exist', async () => {

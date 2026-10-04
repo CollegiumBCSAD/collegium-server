@@ -83,6 +83,24 @@ export class AuthService {
     });
 
     if (existing) {
+      // A declined coach reapplies by registering again with the same
+      // credentials, which puts them back in the admin approval queue.
+      if (
+        existing.role === Role.COACH &&
+        existing.status === AccountStatus.REJECTED &&
+        existing.password &&
+        (await bcrypt.compare(dto.password, existing.password))
+      ) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { status: AccountStatus.PENDING },
+        });
+        return {
+          message:
+            'Your coach application was resubmitted and is awaiting admin approval.',
+        };
+      }
+
       // Already registered but never verified (e.g. the first email got
       // lost) — re-registering is the obvious thing a real user tries next,
       // so treat it as a resend instead of a dead-end conflict error.
@@ -100,15 +118,18 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const role = dto.role ?? Role.NON_ATHLETE;
+    // Coach/Manager accounts sit in the admin approval queue until reviewed.
+    const isCoach = role === Role.COACH;
 
     const user = await this.prisma.user.create({
       data: {
         email,
         password: hashedPassword,
         displayName: dto.displayName,
-        role: dto.role ?? Role.NON_ATHLETE,
+        role,
         universityId: university.id,
-        status: AccountStatus.ACTIVE,
+        status: isCoach ? AccountStatus.PENDING : AccountStatus.ACTIVE,
         emailVerified: false,
       },
     });
@@ -116,8 +137,9 @@ export class AuthService {
     await this.issueVerificationEmail(user.id, user.email, user.displayName);
 
     return {
-      message:
-        'Registration successful. Check your email to verify your account before logging in.',
+      message: isCoach
+        ? 'Registration successful. Verify your email, then wait for an administrator to approve your Coach/Manager account before logging in.'
+        : 'Registration successful. Check your email to verify your account before logging in.',
     };
   }
 
@@ -190,7 +212,9 @@ export class AuthService {
 
     if (user.status === AccountStatus.REJECTED) {
       throw new ForbiddenException(
-        'Your account registration was rejected. Please contact your university administrator.',
+        user.role === Role.COACH
+          ? 'Your coach application was declined. Register again with the same email and password to reapply.'
+          : 'Your account registration was rejected. Please contact your university administrator.',
       );
     }
 
@@ -290,6 +314,12 @@ export class AuthService {
     await this.prisma.emailVerificationToken.deleteMany({
       where: { userId: stored.userId },
     });
+
+    // A coach still awaiting admin approval is verified but not signed in —
+    // JwtStrategy would reject a session for a non-ACTIVE account anyway.
+    if (stored.user.status !== AccountStatus.ACTIVE) {
+      return { pendingApproval: true as const };
+    }
 
     return this.generateTokens(
       stored.user.id,
