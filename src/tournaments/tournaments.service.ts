@@ -14,6 +14,7 @@ import {
   NotificationType,
   Prisma,
   Role,
+  TeamAuditAction,
   TournamentApplicationStatus,
   TournamentStatus,
 } from '@prisma/client';
@@ -23,6 +24,7 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { TeamAuthorityService } from '../coach/team-authority.service';
 import { CloseMatchDto, ClosePlayerStatDto } from './dto/close-match.dto';
 import {
   gamesNeededToWin,
@@ -116,6 +118,7 @@ export class TournamentsService {
     private rankingService: RankingService,
     private realtimeGateway: RealtimeGateway,
     private standingsService: StandingsService,
+    private teamAuthority: TeamAuthorityService,
   ) {}
 
   async scanMatch(
@@ -552,7 +555,12 @@ export class TournamentsService {
   // Strictly registers at squad/team entity level.
   async applyForTournament(
     tournamentId: string,
-    user: { id: string; displayName?: string; universityId?: string },
+    user: {
+      id: string;
+      displayName?: string;
+      universityId?: string;
+      role?: Role;
+    },
     body?: { teamId?: string; teamName?: string },
   ) {
     const tournament = await this.prisma.tournament.findUnique({
@@ -586,6 +594,7 @@ export class TournamentsService {
           universityId: user.universityId,
           ...(tournament.gameTitle ? { gameTitle: tournament.gameTitle } : {}),
           OR: [
+            { coachId: user.id },
             { captainId: user.id },
             {
               members: {
@@ -635,6 +644,10 @@ export class TournamentsService {
       throw new NotFoundException('Squad not found');
     }
 
+    // Registration is the coach's call; a team without one falls back to
+    // its captain.
+    this.teamAuthority.assertCanRegister(team, user);
+
     // Validate squad belongs to an officially recognized collegiate institution
     if (!team.universityId) {
       throw new BadRequestException(
@@ -643,15 +656,42 @@ export class TournamentsService {
     }
 
     // Validate active roster slots
-    const activeSlots = new Set([
-      team.captainId,
-      ...team.members.map((m) => m.userId),
-    ]).size;
+    const activeSlots = new Set(
+      [team.captainId, ...team.members.map((m) => m.userId)].filter(Boolean),
+    ).size;
 
     if (activeSlots < team.min_roster_size) {
       throw new BadRequestException(
         `Squad "${team.name}" has ${activeSlots} active roster slot(s), but this tournament requires a minimum of ${team.min_roster_size} active slots.`,
       );
+    }
+
+    if (activeSlots > team.max_roster_size) {
+      throw new BadRequestException(
+        `Squad "${team.name}" has ${activeSlots} active roster slots, above the ${team.max_roster_size}-player maximum for this title.`,
+      );
+    }
+
+    if (tournament.maxTeamsPerUniversity) {
+      const universityEntries = await this.prisma.tournamentApplication.count({
+        where: {
+          tournamentId,
+          universityId: team.universityId,
+          teamId: { not: team.id },
+          status: {
+            in: [
+              TournamentApplicationStatus.PENDING,
+              TournamentApplicationStatus.APPROVED,
+            ],
+          },
+        },
+      });
+
+      if (universityEntries >= tournament.maxTeamsPerUniversity) {
+        throw new BadRequestException(
+          `${team.university?.name ?? 'Your university'} has reached this tournament's cap of ${tournament.maxTeamsPerUniversity} squad(s).`,
+        );
+      }
     }
 
     // Build immutable roster snapshot
@@ -691,6 +731,13 @@ export class TournamentsService {
       },
     });
 
+    await this.teamAuthority.record(
+      user.id,
+      team.id,
+      TeamAuditAction.TOURNAMENT_REGISTERED,
+      { tournamentId, applicationId: app.id },
+    );
+
     return this.mapApplication(app);
   }
 
@@ -710,7 +757,11 @@ export class TournamentsService {
       }),
     );
 
-    if (!members.some((m) => m.userId === team.captainId) && team.captain) {
+    if (
+      team.captainId &&
+      team.captain &&
+      !members.some((m) => m.userId === team.captainId)
+    ) {
       members.unshift({
         userId: team.captainId,
         displayName: team.captain.displayName || 'Captain',
@@ -764,22 +815,35 @@ export class TournamentsService {
   }
 
   // WITHDRAW / UNDO APPLICATION — Athlete cancels their squad application
-  async withdrawApplication(tournamentId: string, userId: string) {
+  async withdrawApplication(
+    tournamentId: string,
+    user: { id: string; role?: Role },
+    teamId?: string,
+  ) {
+    const userId = user.id;
     const target = await this.prisma.tournamentApplication.findFirst({
       where: {
         tournamentId,
+        ...(teamId ? { teamId } : {}),
         OR: [
           { userId },
           {
             team: {
-              OR: [{ captainId: userId }, { members: { some: { userId } } }],
+              OR: [
+                { coachId: userId },
+                { captainId: userId },
+                { members: { some: { userId } } },
+              ],
             },
           },
         ],
       },
+      include: { team: { select: { captainId: true, coachId: true } } },
     });
 
     if (target) {
+      this.teamAuthority.assertCanRegister(target.team, user);
+
       await this.prisma.tournamentApplication.delete({
         where: { id: target.id },
       });
@@ -798,6 +862,13 @@ export class TournamentsService {
           data: { universities: { disconnect: { id: target.universityId } } },
         });
       }
+
+      await this.teamAuthority.record(
+        userId,
+        target.teamId,
+        TeamAuditAction.TOURNAMENT_WITHDRAWN,
+        { tournamentId, applicationId: target.id },
+      );
     }
 
     return { success: true, message: 'Application withdrawn successfully' };
@@ -2231,7 +2302,11 @@ export class TournamentsService {
           { userId },
           {
             team: {
-              OR: [{ captainId: userId }, { members: { some: { userId } } }],
+              OR: [
+                { coachId: userId },
+                { captainId: userId },
+                { members: { some: { userId } } },
+              ],
             },
           },
         ],

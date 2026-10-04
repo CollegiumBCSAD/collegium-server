@@ -167,15 +167,23 @@ export class TournamentsController {
     return this.tournamentsService.deleteTournament(tournamentId);
   }
 
-  // POST /tournaments/:id/apply — Athlete or squad submits an application
+  // POST /tournaments/:id/apply — The team's coach registers the squad; a
+  // team without a coach is registered by its captain
   @Post(':id/apply')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
-  @ApiOperation({ summary: 'Apply for a tournament' })
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ADMIN)
+  @ApiOperation({ summary: 'Register a squad for a tournament' })
   apply(
     @Param('id') tournamentId: string,
     @Body() body: { teamId?: string; teamName?: string },
     @Request()
-    req: { user: { id: string; displayName?: string; universityId?: string } },
+    req: {
+      user: {
+        id: string;
+        displayName?: string;
+        universityId?: string;
+        role: Role;
+      };
+    },
   ) {
     return this.tournamentsService.applyForTournament(
       tournamentId,
@@ -184,17 +192,20 @@ export class TournamentsController {
     );
   }
 
-  // POST /tournaments/:id/withdraw — Athlete or squad withdraws/undoes their application
+  // POST /tournaments/:id/withdraw — The registering coach (or captain, if
+  // the team has no coach) withdraws the squad's application
   @Post(':id/withdraw')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ADMIN)
   @ApiOperation({ summary: 'Withdraw application for a tournament' })
   withdraw(
     @Param('id') tournamentId: string,
-    @Request() req: { user: { id: string } },
+    @Body() body: { teamId?: string },
+    @Request() req: { user: { id: string; role: Role } },
   ) {
     return this.tournamentsService.withdrawApplication(
       tournamentId,
-      req.user.id,
+      req.user,
+      body?.teamId,
     );
   }
 
@@ -241,7 +252,7 @@ export class TournamentsController {
 
   // GET /tournaments/:id/applications/:appId/roster — Dedicated Roster View
   @Get(':id/applications/:appId/roster')
-  @Roles(Role.ORGANIZER, Role.ADMIN, Role.ATHLETE, Role.NON_ATHLETE)
+  @Roles(Role.ORGANIZER, Role.ADMIN, Role.COACH, Role.ATHLETE, Role.NON_ATHLETE)
   @ApiOperation({
     summary: 'View immutable roster lineup for squad application',
   })
@@ -396,7 +407,7 @@ export class TournamentsController {
 
   // GET /tournaments/:id/messages — Get tournament global channel messages
   @Get(':id/messages')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
   @ApiOperation({ summary: 'Get unified tournament global channel messages' })
   getTournamentMessages(
     @Param('id') tournamentId: string,
@@ -410,7 +421,7 @@ export class TournamentsController {
 
   // POST /tournaments/:id/messages — Send message / announcement
   @Post(':id/messages')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
   @ApiOperation({
     summary: 'Send message or announcement to tournament global channel',
   })
@@ -429,7 +440,7 @@ export class TournamentsController {
 
   // PATCH /tournaments/:id/messages/:mid — Edit message or toggle pinned announcement
   @Patch(':id/messages/:mid')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
   @ApiOperation({
     summary: 'Edit message or adjust pinned announcement in tournament channel',
   })
@@ -450,7 +461,7 @@ export class TournamentsController {
 
   // DELETE /tournaments/:id/messages/:mid — Delete message
   @Delete(':id/messages/:mid')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
+  @Roles(Role.COACH, Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
   @ApiOperation({ summary: 'Delete message from tournament global channel' })
   deleteTournamentMessage(
     @Param('id') tournamentId: string,
