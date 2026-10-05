@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -15,21 +15,11 @@ import { NewsModule } from './news/news.module';
 import { EventsModule } from './events/events.module';
 import { CoachModule } from './coach/coach.module';
 import { RostersModule } from './rosters/rosters.module';
-import { CacheModule } from '@nestjs/cache-manager';
-import KeyvRedis from '@keyv/redis';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-    }),
-    CacheModule.registerAsync({
-      isGlobal: true,
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        stores: [new KeyvRedis(configService.get<string>('REDIS_URL'))],
-      }),
-      inject: [ConfigService],
     }),
     PrismaModule,
     AuthModule,
