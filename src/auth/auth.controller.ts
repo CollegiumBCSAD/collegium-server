@@ -59,18 +59,25 @@ const IMAGE_UPLOAD_OPTIONS = {
 const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
+// Frontend (Vercel) and backend (Render) are deployed on different
+// registrable domains, so the auth cookies must be SameSite=None in
+// production for the browser to send them on cross-site API calls —
+// None requires Secure, which is already gated to production.
+const CROSS_SITE_COOKIES = process.env.NODE_ENV === 'production';
+const SAME_SITE: 'none' | 'lax' = CROSS_SITE_COOKIES ? 'none' : 'lax';
+
 const ACCESS_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  secure: CROSS_SITE_COOKIES,
+  sameSite: SAME_SITE,
   maxAge: 15 * 60 * 1000,
   path: '/',
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  secure: CROSS_SITE_COOKIES,
+  sameSite: SAME_SITE,
   maxAge: 7 * 24 * 60 * 60 * 1000,
   path: '/',
 };
