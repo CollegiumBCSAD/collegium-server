@@ -6,7 +6,7 @@ import { Public } from './auth/decorators/public.decorator';
 export class AppController {
   @Public()
   @Get()
-  getHello(): string {
-    return 'Hello World!';
+  getStatus() {
+    return { status: 'ok', timestamp: new Date().toISOString() };
   }
 }
