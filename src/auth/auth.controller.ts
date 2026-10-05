@@ -174,7 +174,12 @@ export class AuthController {
       result.refresh_token,
       REFRESH_COOKIE_OPTIONS,
     );
-    res.redirect(`${frontendUrl}/auth/callback`);
+    // The frontend's /auth/callback page reads this to establish the
+    // session immediately via Authorization header, rather than depending
+    // on the cookies above surviving a cross-site OAuth redirect bounce.
+    res.redirect(
+      `${frontendUrl}/auth/callback?token=${encodeURIComponent(result.access_token)}`,
+    );
   }
 
   @Public()
