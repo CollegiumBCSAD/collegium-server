@@ -19,6 +19,7 @@ import { OcrService } from '../ocr/ocr.service';
 import { RankingService } from '../ranking/ranking.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { StandingsService } from './standings.service';
+import { TeamAuthorityService } from '../coach/team-authority.service';
 import { TournamentsService } from './tournaments.service';
 
 // Reads the first argument of a mock's first call. Untyped jest.fn() mocks
@@ -71,6 +72,10 @@ const mockPrismaService = {
     upsert: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    count: jest.fn(),
+  },
+  teamAuditLog: {
+    create: jest.fn(),
   },
   tournamentChatMessage: {
     findMany: jest.fn(),
@@ -128,6 +133,7 @@ describe('TournamentsService', () => {
         { provide: RankingService, useValue: mockRankingService },
         { provide: RealtimeGateway, useValue: mockRealtimeGateway },
         { provide: StandingsService, useValue: mockStandingsService },
+        TeamAuthorityService,
       ],
     }).compile();
 
@@ -1549,6 +1555,103 @@ describe('TournamentsService', () => {
       expect(
         mockPrismaService.tournamentApplication.upsert,
       ).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.teamAuditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorId: 'u-cap',
+          teamId: 'team-1',
+          action: 'TOURNAMENT_REGISTERED',
+        }) as unknown,
+      });
+    });
+
+    const fullRoster = ['u-1', 'u-2', 'u-3', 'u-4', 'u-5'].map((userId) => ({
+      userId,
+      status: 'ACCEPTED',
+      gameHandle: userId,
+    }));
+
+    it('rejects the captain when the team has a coach', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.UPCOMING,
+        gameTitle: GameTitle.VALORANT,
+      });
+      mockPrismaService.team.findUnique.mockResolvedValue({
+        id: 'team-1',
+        name: 'UP Fighting Maroons',
+        universityId: 'uni-1',
+        captainId: 'u-1',
+        coachId: 'u-coach',
+        min_roster_size: 5,
+        max_roster_size: 6,
+        members: fullRoster,
+      });
+
+      await expect(
+        service.applyForTournament(
+          't1',
+          { id: 'u-1', universityId: 'uni-1', role: Role.ATHLETE },
+          { teamId: 'team-1' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(
+        mockPrismaService.tournamentApplication.upsert,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-captain athlete when the team has no coach', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.UPCOMING,
+        gameTitle: GameTitle.VALORANT,
+      });
+      mockPrismaService.team.findUnique.mockResolvedValue({
+        id: 'team-1',
+        name: 'UP Fighting Maroons',
+        universityId: 'uni-1',
+        captainId: 'u-1',
+        coachId: null,
+        min_roster_size: 5,
+        max_roster_size: 6,
+        members: fullRoster,
+      });
+
+      await expect(
+        service.applyForTournament(
+          't1',
+          { id: 'u-2', universityId: 'uni-1', role: Role.ATHLETE },
+          { teamId: 'team-1' },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects the squad once its university reaches the tournament cap', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't1',
+        status: TournamentStatus.UPCOMING,
+        gameTitle: GameTitle.VALORANT,
+        maxTeamsPerUniversity: 1,
+      });
+      mockPrismaService.team.findUnique.mockResolvedValue({
+        id: 'team-2',
+        name: 'UP Second Squad',
+        universityId: 'uni-1',
+        captainId: null,
+        coachId: 'u-coach',
+        min_roster_size: 5,
+        max_roster_size: 6,
+        members: fullRoster,
+        university: { name: 'University of the Philippines' },
+      });
+      mockPrismaService.tournamentApplication.count.mockResolvedValue(1);
+
+      await expect(
+        service.applyForTournament(
+          't1',
+          { id: 'u-coach', universityId: 'uni-1', role: Role.COACH },
+          { teamId: 'team-2' },
+        ),
+      ).rejects.toThrow(/cap of 1/);
     });
   });
 

@@ -99,6 +99,9 @@ export class AuthController {
   ) {
     const token = req.query.token as string;
     const tokens = await this.authService.verifyEmail(token);
+    if ('pendingApproval' in tokens) {
+      return tokens;
+    }
     res.cookie(ACCESS_TOKEN_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
     res.cookie(
       REFRESH_TOKEN_COOKIE,

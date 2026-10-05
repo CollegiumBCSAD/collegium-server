@@ -5,6 +5,7 @@ import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { OcrModule } from '../ocr/ocr.module';
 import { RankingModule } from '../ranking/ranking.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { CoachModule } from '../coach/coach.module';
 import { TournamentsController } from './tournaments.controller';
 import { TournamentsService } from './tournaments.service';
 import { StandingsService } from './standings.service';
@@ -17,6 +18,7 @@ import { StandingsService } from './standings.service';
     OcrModule,
     RankingModule,
     RealtimeModule,
+    CoachModule,
   ],
   controllers: [TournamentsController],
   providers: [TournamentsService, StandingsService],

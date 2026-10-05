@@ -17,6 +17,8 @@ import { CreateTeamDto, JoinTeamDto } from './dto/teams.dto';
 import { randomBytes } from 'crypto';
 import { NotificationsService } from '../notifications/notifications.service';
 
+const COACH_SELECT = { id: true, displayName: true, email: true } as const;
+
 @Injectable()
 export class TeamsService {
   constructor(
@@ -32,6 +34,7 @@ export class TeamsService {
     return this.prisma.team.findMany({
       include: {
         university: true,
+        coach: { select: COACH_SELECT },
         members: {
           include: {
             user: {
@@ -52,6 +55,7 @@ export class TeamsService {
       where: { id },
       include: {
         university: true,
+        coach: { select: COACH_SELECT },
         members: {
           include: {
             user: {
@@ -226,6 +230,12 @@ export class TeamsService {
       throw new NotFoundException('Team not found.');
     }
 
+    if (team.coachId === dto.userId) {
+      throw new BadRequestException(
+        'You coach this team, so you cannot also hold a player slot on its roster.',
+      );
+    }
+
     const existingMember = await this.prisma.teamMember.findFirst({
       where: { teamId, userId: dto.userId },
     });
@@ -280,6 +290,7 @@ export class TeamsService {
         where: { id: dto.userId, role: Role.NON_ATHLETE },
         data: { role: Role.ATHLETE },
       });
+      await this.claimCaptaincyIfVacant(teamId, dto.userId);
     }
 
     // Also sync the athlete's typed handle to their default profile IGN
@@ -298,9 +309,10 @@ export class TeamsService {
       },
     });
 
-    if (memberStatus === TeamMemberStatus.PENDING) {
+    const reviewerId = team.captainId ?? team.coachId;
+    if (memberStatus === TeamMemberStatus.PENDING && reviewerId) {
       await this.notificationsService.create({
-        userId: team.captainId,
+        userId: reviewerId,
         category: NotificationCategory.TEAM,
         type: NotificationType.TEAM_JOIN_REQUEST,
         title: '👥 New Roster Join Request',
@@ -315,7 +327,7 @@ export class TeamsService {
       status: memberStatus,
       message: isInstantJoin
         ? 'Successfully joined the team via invite link!'
-        : 'Join request submitted. Awaiting Team Captain approval.',
+        : `Join request submitted. Awaiting ${team.captainId ? 'Team Captain' : 'Coach'} approval.`,
     };
   }
 
@@ -328,9 +340,9 @@ export class TeamsService {
       throw new NotFoundException('Team not found.');
     }
 
-    if (team.captainId !== captainId) {
+    if (!this.canManageRoster(team, captainId)) {
       throw new BadRequestException(
-        'Only the Team Captain can manage join requests.',
+        'Only the Team Captain or Coach can manage join requests.',
       );
     }
 
@@ -358,7 +370,7 @@ export class TeamsService {
       where: { id: teamId },
     });
 
-    if (!team || team.captainId !== captainId) {
+    if (!team || !this.canManageRoster(team, captainId)) {
       throw new BadRequestException(
         'Unauthorized to manage requests for this team.',
       );
@@ -379,6 +391,7 @@ export class TeamsService {
         where: { id: updatedMember.userId, role: Role.NON_ATHLETE },
         data: { role: Role.ATHLETE },
       });
+      await this.claimCaptaincyIfVacant(teamId, updatedMember.userId);
     }
 
     await this.notificationsService.create({
@@ -431,6 +444,11 @@ export class TeamsService {
           where: { id: teamId },
           data: { captainId: remainingMembers[0].userId },
         });
+      } else if (team.coachId) {
+        await this.prisma.team.update({
+          where: { id: teamId },
+          data: { captainId: null },
+        });
       } else {
         await this.prisma.team.delete({
           where: { id: teamId },
@@ -454,5 +472,21 @@ export class TeamsService {
     }
 
     return { success: true, message: 'Successfully left the team roster.' };
+  }
+
+  private canManageRoster(
+    team: { captainId: string | null; coachId: string | null },
+    userId: string,
+  ) {
+    return team.captainId === userId || team.coachId === userId;
+  }
+
+  // A squad a coach created starts without a captain; the first athlete
+  // accepted onto it takes the armband.
+  private async claimCaptaincyIfVacant(teamId: string, userId: string) {
+    await this.prisma.team.updateMany({
+      where: { id: teamId, captainId: null },
+      data: { captainId: userId },
+    });
   }
 }
