@@ -45,19 +45,20 @@ async function bootstrap() {
 
   const disableAuth = process.env.DISABLE_AUTH === 'true';
 
-  const configBuilder = new DocumentBuilder()
-    .setTitle('API Documentation')
-    .setDescription('API documentation for Collegium')
-    .setVersion('1.0');
+  // Swagger exposes the full route/schema surface — keep it dev/staging only.
+  if (process.env.NODE_ENV !== 'production') {
+    const configBuilder = new DocumentBuilder()
+      .setTitle('API Documentation')
+      .setDescription('API documentation for Collegium')
+      .setVersion('1.0');
 
-  if (!disableAuth) configBuilder.addBearerAuth();
+    if (!disableAuth) configBuilder.addBearerAuth();
 
-  const config = configBuilder.build();
+    const document = SwaggerModule.createDocument(app, configBuilder.build());
+    SwaggerModule.setup('api-docs', app, document);
+  }
 
   const port = configService.get<number>('PORT') ?? 5000;
-
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api-docs', app, document);
 
   await app.listen(port);
 }
