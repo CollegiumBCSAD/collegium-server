@@ -1148,7 +1148,11 @@ export class TournamentsService {
     // when the organizer asks for one.
     const seeded = randomize
       ? this.shuffle(universities).map((u) => u.id)
-      : await this.seedByRating(universities, tournament.gameTitle);
+      : await this.seedByRating(
+          tournament.id,
+          universities,
+          tournament.gameTitle,
+        );
 
     await this.prisma.match.createMany({
       data: this.buildEliminationSkeleton(tournament.id, series, seeded, null),
@@ -1203,6 +1207,7 @@ export class TournamentsService {
 
   // Seed strongest-first by Glicko-2 rating; unrated default to 1500, ties random.
   private async seedByRating(
+    tournamentId: string,
     universities: { id: string }[],
     gameTitle: GameTitle | null,
   ): Promise<string[]> {
@@ -1211,6 +1216,12 @@ export class TournamentsService {
           where: {
             gameTitle,
             universityId: { in: universities.map((u) => u.id) },
+            tournamentApplications: {
+              some: {
+                tournamentId,
+                status: TournamentApplicationStatus.APPROVED,
+              },
+            },
           },
           select: { universityId: true, glicko2_rating: true },
         })
@@ -1557,7 +1568,7 @@ export class TournamentsService {
     const seeded = randomize
       ? this.shuffle(universities).map((u) => u.id)
       : orderForStandardPairing(
-          await this.seedByRating(universities, series.gameTitle),
+          await this.seedByRating(tournamentId, universities, series.gameTitle),
         );
 
     await this.createRound(

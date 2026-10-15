@@ -8,6 +8,7 @@ import {
   BracketFormat,
   BracketSide,
   MatchGameMode,
+  TournamentApplicationStatus,
   TournamentStatus,
   GameTitle,
   Role,
@@ -817,6 +818,13 @@ describe('TournamentsService', () => {
       const { data } = firstCallArg<{
         data: Array<{ slot: number; winnerId?: string; loserId?: string }>;
       }>(mockPrismaService.match.createMany);
+
+      const { where } = firstCallArg<{
+        where: { tournamentApplications: unknown };
+      }>(mockPrismaService.team.findMany);
+      expect(where.tournamentApplications).toEqual({
+        some: { tournamentId, status: TournamentApplicationStatus.APPROVED },
+      });
 
       // Standard 1v4/2v3 seeding on ratings [d:1800, b:1600, c:1400, a:1200]:
       // strongest (d) vs weakest (a), then the middle pair (b vs c).
