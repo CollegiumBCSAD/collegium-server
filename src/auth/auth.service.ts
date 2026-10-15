@@ -40,25 +40,10 @@ export class AuthService {
     });
 
     if (!university) {
-      const knownNames: Record<string, string> = {
-        'umak.edu.ph': 'University of Makati',
-        'admu.edu.ph': 'Ateneo de Manila University',
-        'dlsu.edu.ph': 'De La Salle University',
-        'ust.edu.ph': 'University of Santo Tomas',
-        'up.edu.ph': 'University of the Philippines',
-        'feu.edu.ph': 'Far Eastern University',
-        'nu.edu.ph': 'National University',
-        'adamson.edu.ph': 'Adamson University',
-        'adu.edu.ph': 'Adamson University',
-        'mapua.edu.ph': 'Mapúa University',
-      };
-
-      const name = knownNames[domain] || `Unregistered Institution (${domain})`;
-
       university = await this.prisma.university.create({
         data: {
           domain,
-          name,
+          name: `Unregistered Institution (${domain})`,
         },
       });
     }
