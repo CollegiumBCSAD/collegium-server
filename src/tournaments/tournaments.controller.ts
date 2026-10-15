@@ -263,21 +263,6 @@ export class TournamentsController {
     return this.tournamentsService.getApplicationRoster(tournamentId, appId);
   }
 
-  // POST /tournaments/:id/register — Direct register (Admin/Legacy)
-  @Post(':id/register')
-  @Roles(Role.ATHLETE, Role.NON_ATHLETE, Role.ORGANIZER, Role.ADMIN)
-  @ApiOperation({ summary: 'Register your university for a tournament' })
-  register(
-    @Param('id') tournamentId: string,
-    @Request() req: { user: { universityId: string } },
-  ) {
-    const universityId = req.user.universityId;
-    return this.tournamentsService.registerUniversity(
-      tournamentId,
-      universityId,
-    );
-  }
-
   // POST /tournaments/:id/bracket — Admin, Organizer, or Athlete generates the
   // bracket. Pass randomize: true to draw round 1 at random instead of seeding
   // it by rating.

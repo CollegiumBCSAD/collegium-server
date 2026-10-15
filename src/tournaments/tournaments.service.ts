@@ -988,43 +988,6 @@ export class TournamentsService {
     return this.mapApplication(updated || target);
   }
 
-  // REGISTER — Register a university for a tournament directly (Legacy/Admin)
-  async registerUniversity(tournamentId: string, universityId: string) {
-    const tournament = await this.prisma.tournament.findUnique({
-      where: { id: tournamentId },
-      include: { universities: true },
-    });
-
-    if (!tournament) {
-      throw new NotFoundException('Tournament not found');
-    }
-
-    if (tournament.status !== TournamentStatus.UPCOMING) {
-      throw new BadRequestException(
-        'Registration is only allowed for UPCOMING tournaments',
-      );
-    }
-
-    const alreadyConnected =
-      tournament.universities?.some((u) => u.id === universityId) ?? false;
-
-    if (!alreadyConnected && universityId) {
-      return this.prisma.tournament.update({
-        where: { id: tournamentId },
-        data: {
-          universities: {
-            connect: { id: universityId },
-          },
-        },
-        include: {
-          universities: true,
-        },
-      });
-    }
-
-    return tournament;
-  }
-
   // GENERATE BRACKET — Seed the tournament's matches according to its bracketFormat.
   // "Single Elimination" is the default when bracketFormat is unset/unrecognized.
   async generateBracket(

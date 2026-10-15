@@ -411,53 +411,6 @@ describe('TournamentsService', () => {
     });
   });
 
-  // registerUniversity()
-  describe('registerUniversity()', () => {
-    const tournamentId = 'tournament-uuid';
-    const universityId = 'university-uuid';
-
-    it('should register a university to an UPCOMING tournament', async () => {
-      const mockTournament = {
-        id: tournamentId,
-        status: TournamentStatus.UPCOMING,
-      };
-      const mockUpdated = {
-        id: tournamentId,
-        universities: [{ id: universityId }],
-      };
-
-      mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
-      mockPrismaService.tournament.update.mockResolvedValue(mockUpdated);
-
-      const result = await service.registerUniversity(
-        tournamentId,
-        universityId,
-      );
-
-      expect(result).toEqual(mockUpdated);
-    });
-
-    it('should throw NotFoundException if tournament does not exist', async () => {
-      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.registerUniversity(tournamentId, universityId),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException if tournament is not UPCOMING', async () => {
-      const mockTournament = {
-        id: tournamentId,
-        status: TournamentStatus.ONGOING,
-      };
-      mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
-
-      await expect(
-        service.registerUniversity(tournamentId, universityId),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
   // startTournament()
   describe('startTournament()', () => {
     const tournamentId = 'tournament-uuid';
