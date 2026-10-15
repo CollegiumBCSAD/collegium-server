@@ -93,6 +93,7 @@ describe('UniversitiesService', () => {
             domain: 'umak.edu.ph',
             created_at: createdAt,
           },
+          tournamentApplications: [{ tournamentId: 't-1' }],
         },
       ];
       const mockMatches = [
@@ -101,6 +102,7 @@ describe('UniversitiesService', () => {
           title: 'VALORANT',
           isVerified: true,
           matchMode: 'TOURNAMENT',
+          tournamentId: 't-1',
           winnerId: 'uni-1',
           loserId: 'uni-2',
           playedAt: new Date('2026-08-01'),
@@ -110,9 +112,20 @@ describe('UniversitiesService', () => {
           title: 'VALORANT',
           isVerified: true,
           matchMode: 'TOURNAMENT',
+          tournamentId: 't-1',
           winnerId: 'uni-1',
           loserId: 'uni-3',
           playedAt: new Date('2026-07-25'),
+        },
+        {
+          id: 'm3',
+          title: 'VALORANT',
+          isVerified: true,
+          matchMode: 'TOURNAMENT',
+          tournamentId: 't-other-squad',
+          winnerId: 'uni-4',
+          loserId: 'uni-1',
+          playedAt: new Date('2026-07-20'),
         },
       ];
 
@@ -122,9 +135,18 @@ describe('UniversitiesService', () => {
       const result = await service.findAll('VALORANT');
 
       expect(mockPrismaService.team.findMany).toHaveBeenCalledWith({
-        where: { gameTitle: 'VALORANT' },
+        where: {
+          gameTitle: 'VALORANT',
+          tournamentApplications: { some: { status: 'APPROVED' } },
+        },
         orderBy: { glicko2_rating: 'desc' },
-        include: { university: true },
+        include: {
+          university: true,
+          tournamentApplications: {
+            where: { status: 'APPROVED' },
+            select: { tournamentId: true },
+          },
+        },
       });
 
       expect(result).toHaveLength(1);
