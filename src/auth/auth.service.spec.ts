@@ -214,7 +214,7 @@ describe('AuthService', () => {
       const mockCreatedUni = {
         id: 'uni-auto',
         domain: 'admu.edu.ph',
-        name: 'Ateneo de Manila University',
+        name: 'Unregistered Institution (admu.edu.ph)',
       };
       mockPrismaService.university.findUnique.mockResolvedValue(null);
       mockPrismaService.university.create = jest
@@ -235,7 +235,10 @@ describe('AuthService', () => {
       const result = await service.register(dto);
       expect(result).toHaveProperty('message');
       expect(mockPrismaService.university.create).toHaveBeenCalledWith({
-        data: { domain: 'admu.edu.ph', name: 'Ateneo de Manila University' },
+        data: {
+          domain: 'admu.edu.ph',
+          name: 'Unregistered Institution (admu.edu.ph)',
+        },
       });
     });
 
