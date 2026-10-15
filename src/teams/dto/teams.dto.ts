@@ -11,14 +11,6 @@ export class CreateTeamDto {
 
   @IsString()
   @IsNotEmpty()
-  universityId: string;
-
-  @IsString()
-  @IsNotEmpty()
-  captainId: string;
-
-  @IsString()
-  @IsNotEmpty()
   gameHandle: string;
 
   @IsString()
@@ -27,10 +19,6 @@ export class CreateTeamDto {
 }
 
 export class JoinTeamDto {
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
-
   @IsString()
   @IsNotEmpty()
   gameHandle: string;

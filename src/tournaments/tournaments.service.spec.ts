@@ -8,6 +8,7 @@ import {
   BracketFormat,
   BracketSide,
   MatchGameMode,
+  TournamentApplicationStatus,
   TournamentStatus,
   GameTitle,
   Role,
@@ -407,53 +408,6 @@ describe('TournamentsService', () => {
 
       await expect(
         service.updateApprovalStatus(tournamentId, TournamentStatus.ONGOING),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  // registerUniversity()
-  describe('registerUniversity()', () => {
-    const tournamentId = 'tournament-uuid';
-    const universityId = 'university-uuid';
-
-    it('should register a university to an UPCOMING tournament', async () => {
-      const mockTournament = {
-        id: tournamentId,
-        status: TournamentStatus.UPCOMING,
-      };
-      const mockUpdated = {
-        id: tournamentId,
-        universities: [{ id: universityId }],
-      };
-
-      mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
-      mockPrismaService.tournament.update.mockResolvedValue(mockUpdated);
-
-      const result = await service.registerUniversity(
-        tournamentId,
-        universityId,
-      );
-
-      expect(result).toEqual(mockUpdated);
-    });
-
-    it('should throw NotFoundException if tournament does not exist', async () => {
-      mockPrismaService.tournament.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.registerUniversity(tournamentId, universityId),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException if tournament is not UPCOMING', async () => {
-      const mockTournament = {
-        id: tournamentId,
-        status: TournamentStatus.ONGOING,
-      };
-      mockPrismaService.tournament.findUnique.mockResolvedValue(mockTournament);
-
-      await expect(
-        service.registerUniversity(tournamentId, universityId),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -864,6 +818,13 @@ describe('TournamentsService', () => {
       const { data } = firstCallArg<{
         data: Array<{ slot: number; winnerId?: string; loserId?: string }>;
       }>(mockPrismaService.match.createMany);
+
+      const { where } = firstCallArg<{
+        where: { tournamentApplications: unknown };
+      }>(mockPrismaService.team.findMany);
+      expect(where.tournamentApplications).toEqual({
+        some: { tournamentId, status: TournamentApplicationStatus.APPROVED },
+      });
 
       // Standard 1v4/2v3 seeding on ratings [d:1800, b:1600, c:1400, a:1200]:
       // strongest (d) vs weakest (a), then the middle pair (b vs c).

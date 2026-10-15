@@ -342,13 +342,6 @@ export class RankingService {
       if (appTeam) return appTeam;
     }
 
-    // 3. Fallback: Find team for this university and game title
-    const gameTitle = tournament.gameTitle ?? GameTitle.VALORANT;
-    return this.prisma.team.findFirst({
-      where: {
-        universityId: contestantId,
-        gameTitle,
-      },
-    });
+    return null;
   }
 }

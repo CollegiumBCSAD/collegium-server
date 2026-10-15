@@ -91,6 +91,34 @@ describe('RankingService', () => {
       );
     });
 
+    it('does not rate a school with no approved application, even if it has a team in this game', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        id: 't-2',
+        name: 'Unapproved Entry',
+        gameTitle: GameTitle.VALORANT,
+        rating_period_closed_at: null,
+        event_weight: 1.0,
+      });
+      mockPrismaService.match.findMany.mockResolvedValue([
+        {
+          id: 'm-1',
+          tournamentId: 't-2',
+          winnerId: 'uni-a',
+          loserId: 'uni-b',
+          isVerified: true,
+        },
+      ]);
+      mockPrismaService.team.findUnique.mockResolvedValue(null);
+      mockPrismaService.tournamentApplication.findFirst.mockResolvedValue(null);
+      mockPrismaService.team.findFirst.mockResolvedValue({ id: 'stray-team' });
+      mockPrismaService.tournament.update.mockResolvedValue({});
+
+      const result = await service.closeTournamentRatingPeriod('t-2');
+
+      expect(result.teamsUpdated).toHaveLength(0);
+      expect(mockPrismaService.team.update).not.toHaveBeenCalled();
+    });
+
     it('processes batch Glicko-2 updates, applies event weight, and persists to Team and RatingHistory', async () => {
       const tournament = {
         id: 't-1',
