@@ -23,7 +23,11 @@ import {
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
-import { CreateEventDto, UpdateEventDto } from './dto/event.dto';
+import {
+  CreateEventDto,
+  ReviewEventDto,
+  UpdateEventDto,
+} from './dto/event.dto';
 import {
   ReviewEventTeamDto,
   SubmitEventTeamDto,
@@ -68,6 +72,20 @@ export class EventsController {
   @ApiOperation({ summary: 'List events the caller organizes' })
   findAll(@Request() req: AuthenticatedRequest) {
     return this.eventsService.findAllForUser(req.user);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('pending-approval')
+  @ApiOperation({ summary: 'Invite-only events awaiting admin approval' })
+  findPendingApproval() {
+    return this.eventsService.findPendingApproval();
+  }
+
+  @Roles(Role.ADMIN)
+  @Patch(':id/review')
+  @ApiOperation({ summary: 'Approve or reject an invite-only event (Admin)' })
+  review(@Param('id') id: string, @Body() dto: ReviewEventDto) {
+    return this.eventsService.reviewEvent(id, dto);
   }
 
   // Declared before ':id' so the literal path wins.

@@ -726,6 +726,14 @@ enum EventStatus {
   COMPLETED
 }
 
+// Admin sign-off for an invite-only event, separate from its lifecycle
+// status: an event can't open signups until an admin approves it.
+enum EventApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum EventTeamStatus {
   PENDING
   APPROVED
@@ -744,6 +752,8 @@ model Event {
   bracketFormat  BracketFormat @default(SINGLE_ELIM)
   inviteCode     String        @unique
   status         EventStatus   @default(DRAFT)
+  approvalStatus  EventApprovalStatus @default(PENDING)
+  rejectionReason String?
   organizerId    String
   organizer      User          @relation("EventOrganizer", fields: [organizerId], references: [id])
   signupsCloseAt DateTime?

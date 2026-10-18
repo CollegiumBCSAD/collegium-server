@@ -1,6 +1,11 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { EventStatus, EventTeamStatus } from '@prisma/client';
+import {
+  EventApprovalStatus,
+  EventStatus,
+  EventTeamStatus,
+} from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from './events.service';
 import { EventTeamsService, RosterEntry } from './event-teams.service';
@@ -23,6 +28,7 @@ const mockPrismaService = {
 const openEvent = {
   id: 'event-1',
   status: EventStatus.OPEN,
+  approvalStatus: EventApprovalStatus.APPROVED,
   signupsCloseAt: null,
   maxSubs: 2,
 };
@@ -57,6 +63,7 @@ describe('EventTeamsService', () => {
         EventTeamsService,
         EventsService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: NotificationsService, useValue: { create: jest.fn() } },
       ],
     }).compile();
 
