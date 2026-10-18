@@ -139,7 +139,7 @@ describe('AuthService', () => {
       expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
     });
 
-    it('queues a coach registration for admin approval', async () => {
+    it('activates a coach registration without admin approval', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
       mockPrismaService.user.findUnique.mockResolvedValue(null);
       (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
@@ -162,10 +162,10 @@ describe('AuthService', () => {
         data: { role: Role; status: AccountStatus };
       };
       expect(createCall.data.role).toBe(Role.COACH);
-      expect(createCall.data.status).toBe(AccountStatus.PENDING);
+      expect(createCall.data.status).toBe(AccountStatus.ACTIVE);
     });
 
-    it('lets a declined coach reapply with the same credentials', async () => {
+    it('activates a previously declined coach who registers again', async () => {
       mockPrismaService.university.findUnique.mockResolvedValue(mockUniversity);
       mockPrismaService.user.findUnique.mockResolvedValue({
         id: 'coach-1',
@@ -181,9 +181,9 @@ describe('AuthService', () => {
 
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: 'coach-1' },
-        data: { status: AccountStatus.PENDING },
+        data: { status: AccountStatus.ACTIVE },
       });
-      expect(result.message).toMatch(/resubmitted/);
+      expect(result.message).toMatch(/now active/);
     });
 
     it('still succeeds even if the verification email fails to send', async () => {
