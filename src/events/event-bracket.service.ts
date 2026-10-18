@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EventStatus, EventTeamStatus } from '@prisma/client';
+import {
+  EventApprovalStatus,
+  EventStatus,
+  EventTeamStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { gamesNeededToWin } from '../tournaments/series.util';
 import { EventsService, RequestingUser } from './events.service';
@@ -76,6 +80,7 @@ export class EventBracketService {
         gameTitle: true,
         bracketFormat: true,
         status: true,
+        approvalStatus: true,
         teams: {
           where: { status: EventTeamStatus.APPROVED },
           select: { id: true, name: true, logo: true, seed: true },
@@ -104,6 +109,15 @@ export class EventBracketService {
     }
 
     return event;
+  }
+
+  /** Spectator view: brackets are public, but only once an admin approved the event. */
+  async getPublicBracket(eventId: string) {
+    const { approvalStatus, ...bracket } = await this.getBracket(eventId);
+    if (approvalStatus !== EventApprovalStatus.APPROVED) {
+      throw new NotFoundException('Event not found');
+    }
+    return bracket;
   }
 
   async reportResult(

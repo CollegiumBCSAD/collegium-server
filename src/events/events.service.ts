@@ -9,6 +9,8 @@ import {
   Event,
   EventApprovalStatus,
   EventStatus,
+  EventTeamStatus,
+  GameTitle,
   NotificationCategory,
   NotificationType,
   Role,
@@ -166,6 +168,37 @@ export class EventsService {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { approvalStatus, ...publicEvent } = event;
     return { ...publicEvent, signupsOpen: this.signupsOpen(event) };
+  }
+
+  /**
+   * Intra (invite-only) events anyone can browse and spectate: approved and
+   * past DRAFT. The invite code is left out, so joining still needs it.
+   */
+  async findPublicEvents(gameTitle?: GameTitle) {
+    return this.prisma.event.findMany({
+      where: {
+        approvalStatus: EventApprovalStatus.APPROVED,
+        status: { not: EventStatus.DRAFT },
+        ...(gameTitle ? { gameTitle } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        gameTitle: true,
+        bracketFormat: true,
+        status: true,
+        signupsCloseAt: true,
+        createdAt: true,
+        organizer: { select: { displayName: true } },
+        _count: {
+          select: {
+            teams: { where: { status: EventTeamStatus.APPROVED } },
+            matches: true,
+          },
+        },
+      },
+    });
   }
 
   /** Admin review queue: every event still waiting for a decision. */
