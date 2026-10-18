@@ -25,6 +25,10 @@ import { Public } from '../auth/decorators/public.decorator';
 import { CloseMatchDto } from './dto/close-match.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
+import {
+  CreateTournamentStreamDto,
+  UpdateTournamentStreamDto,
+} from './dto/tournament-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 import { TournamentsService } from './tournaments.service';
 import { StandingsService } from './standings.service';
@@ -132,6 +136,48 @@ export class TournamentsController {
     @Request() req: { user: { id: string; role: Role } },
   ) {
     return this.tournamentsService.updateStream(id, updateStreamDto, req.user);
+  }
+
+  // POST /tournaments/:id/streams — add another simultaneous broadcast
+  @Post(':id/streams')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Add a live stream to a tournament' })
+  addStream(
+    @Param('id') id: string,
+    @Body() dto: CreateTournamentStreamDto,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.addStream(id, dto, req.user);
+  }
+
+  // PATCH /tournaments/:id/streams/:streamId — edit URL, label, match or live flag
+  @Patch(':id/streams/:streamId')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Update one tournament stream' })
+  updateStreamEntry(
+    @Param('id') id: string,
+    @Param('streamId') streamId: string,
+    @Body() dto: UpdateTournamentStreamDto,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.updateStreamEntry(
+      id,
+      streamId,
+      dto,
+      req.user,
+    );
+  }
+
+  // DELETE /tournaments/:id/streams/:streamId
+  @Delete(':id/streams/:streamId')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({ summary: 'Remove a tournament stream' })
+  removeStream(
+    @Param('id') id: string,
+    @Param('streamId') streamId: string,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.removeStream(id, streamId, req.user);
   }
 
   // POST /tournaments/:id/start — Organizer or Admin starts upcoming tournament (sets status to ONGOING/LIVE)
