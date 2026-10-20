@@ -2,14 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from './email.service';
 
-const mockSendMail = jest.fn();
-
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    sendMail: (...args: unknown[]) => mockSendMail(...args),
-  })),
-}));
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
 
 const mockConfigService = {
   get: jest.fn().mockReturnValue('test-value'),
@@ -36,7 +30,7 @@ describe('EmailService', () => {
 
   describe('sendVerificationEmail()', () => {
     it('sends a verification email with the given link', async () => {
-      mockSendMail.mockResolvedValue({});
+      mockFetch.mockResolvedValue({ ok: true });
 
       await service.sendVerificationEmail(
         'student@umak.edu.ph',
@@ -44,21 +38,27 @@ describe('EmailService', () => {
         'https://collegium.app/verify-email?token=abc123',
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const call = mockSendMail.mock.calls[0][0] as {
-        to: string;
+      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string) as {
+        to: { email: string }[];
         subject: string;
-        html: string;
+        htmlContent: string;
       };
-      expect(call.to).toBe('student@umak.edu.ph');
-      expect(call.subject).toContain('Verify');
-      expect(call.html).toContain(
+      expect(url).toBe('https://api.brevo.com/v3/smtp/email');
+      expect(init.headers).toMatchObject({ 'api-key': 'test-value' });
+      expect(body.to).toEqual([{ email: 'student@umak.edu.ph' }]);
+      expect(body.subject).toContain('Verify');
+      expect(body.htmlContent).toContain(
         'https://collegium.app/verify-email?token=abc123',
       );
     });
 
-    it('throws when the SMTP transport rejects the send', async () => {
-      mockSendMail.mockRejectedValue(new Error('invalid login'));
+    it('throws when Brevo rejects the send', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('unauthorized'),
+      });
 
       await expect(
         service.sendVerificationEmail(
