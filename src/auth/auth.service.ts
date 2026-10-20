@@ -68,8 +68,8 @@ export class AuthService {
     });
 
     if (existing) {
-      // A declined coach reapplies by registering again with the same
-      // credentials, which puts them back in the admin approval queue.
+      // Coaches no longer need admin approval, so a coach declined under the
+      // old review flow gets in by registering again with the same credentials.
       if (
         existing.role === Role.COACH &&
         existing.status === AccountStatus.REJECTED &&
@@ -78,11 +78,10 @@ export class AuthService {
       ) {
         await this.prisma.user.update({
           where: { id: existing.id },
-          data: { status: AccountStatus.PENDING },
+          data: { status: AccountStatus.ACTIVE },
         });
         return {
-          message:
-            'Your coach application was resubmitted and is awaiting admin approval.',
+          message: 'Your coach account is now active. You can log in.',
         };
       }
 
@@ -104,8 +103,6 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const role = dto.role ?? Role.NON_ATHLETE;
-    // Coach/Manager accounts sit in the admin approval queue until reviewed.
-    const isCoach = role === Role.COACH;
 
     const user = await this.prisma.user.create({
       data: {
@@ -114,7 +111,7 @@ export class AuthService {
         displayName: dto.displayName,
         role,
         universityId: university.id,
-        status: isCoach ? AccountStatus.PENDING : AccountStatus.ACTIVE,
+        status: AccountStatus.ACTIVE,
         emailVerified: false,
       },
     });
@@ -122,9 +119,8 @@ export class AuthService {
     await this.issueVerificationEmail(user.id, user.email, user.displayName);
 
     return {
-      message: isCoach
-        ? 'Registration successful. Verify your email, then wait for an administrator to approve your Coach/Manager account before logging in.'
-        : 'Registration successful. Check your email to verify your account before logging in.',
+      message:
+        'Registration successful. Check your email to verify your account before logging in.',
     };
   }
 
@@ -300,8 +296,8 @@ export class AuthService {
       where: { userId: stored.userId },
     });
 
-    // A coach still awaiting admin approval is verified but not signed in —
-    // JwtStrategy would reject a session for a non-ACTIVE account anyway.
+    // A non-ACTIVE account (suspended, or a legacy pending one) is verified but
+    // not signed in — JwtStrategy would reject the session anyway.
     if (stored.user.status !== AccountStatus.ACTIVE) {
       return { pendingApproval: true as const };
     }

@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
-import { EventStatus, EventTeamStatus, Prisma } from '@prisma/client';
+import {
+  EventApprovalStatus,
+  EventStatus,
+  EventTeamStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService, RequestingUser } from './events.service';
 import {
@@ -38,7 +43,11 @@ export class EventTeamsService {
       where: { inviteCode: code },
     });
 
-    if (!event || event.status === EventStatus.DRAFT) {
+    if (
+      !event ||
+      event.status === EventStatus.DRAFT ||
+      event.approvalStatus !== EventApprovalStatus.APPROVED
+    ) {
       throw new NotFoundException('Event not found');
     }
 

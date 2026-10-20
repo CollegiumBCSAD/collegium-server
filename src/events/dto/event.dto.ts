@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -6,6 +7,7 @@ import {
   IsString,
   IsDateString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { BracketFormat, EventStatus, GameTitle } from '@prisma/client';
@@ -64,4 +66,15 @@ export class UpdateEventDto {
   @Max(5)
   @IsOptional()
   maxSubs?: number;
+}
+
+export class ReviewEventDto {
+  @IsBoolean()
+  approve!: boolean;
+
+  // Required when rejecting, so the organizer knows what to fix.
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  reason?: string;
 }

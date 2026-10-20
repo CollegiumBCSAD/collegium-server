@@ -41,6 +41,10 @@ import {
 import { StandingsService } from './standings.service';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
+import {
+  CreateTournamentStreamDto,
+  UpdateTournamentStreamDto,
+} from './dto/tournament-stream.dto';
 import { UpdateTournamentDto } from './dto/update-tournament.dto';
 
 interface BracketMatchRow {
@@ -264,6 +268,7 @@ export class TournamentsService {
           },
         },
         applications: { include: { university: { select: { name: true } } } },
+        streams: { orderBy: { createdAt: 'asc' } },
       },
     });
 
@@ -452,6 +457,117 @@ export class TournamentsService {
           : {}),
       },
     });
+  }
+
+  // STREAMS — a tournament can broadcast several matches at once. Each entry
+  // is one embed; the legacy single-stream fields mirror the primary entry.
+  async addStream(
+    id: string,
+    dto: CreateTournamentStreamDto,
+    user: { id: string; role: Role },
+  ) {
+    await this.assertCanEditStreams(id, user);
+    await this.assertMatchInTournament(id, dto.matchId);
+    await this.prisma.tournamentStream.create({
+      data: {
+        tournamentId: id,
+        url: dto.url,
+        label: dto.label ?? null,
+        matchId: dto.matchId ?? null,
+        isLive: dto.isLive ?? true,
+      },
+    });
+    return this.syncPrimaryStream(id);
+  }
+
+  async updateStreamEntry(
+    id: string,
+    streamId: string,
+    dto: UpdateTournamentStreamDto,
+    user: { id: string; role: Role },
+  ) {
+    await this.assertCanEditStreams(id, user);
+    await this.findStreamOrThrow(id, streamId);
+    await this.assertMatchInTournament(id, dto.matchId);
+    await this.prisma.tournamentStream.update({
+      where: { id: streamId },
+      data: {
+        ...(dto.url !== undefined ? { url: dto.url } : {}),
+        ...(dto.label !== undefined ? { label: dto.label } : {}),
+        ...(dto.matchId !== undefined ? { matchId: dto.matchId } : {}),
+        ...(dto.isLive !== undefined ? { isLive: dto.isLive } : {}),
+      },
+    });
+    return this.syncPrimaryStream(id);
+  }
+
+  async removeStream(
+    id: string,
+    streamId: string,
+    user: { id: string; role: Role },
+  ) {
+    await this.assertCanEditStreams(id, user);
+    await this.findStreamOrThrow(id, streamId);
+    await this.prisma.tournamentStream.delete({ where: { id: streamId } });
+    return this.syncPrimaryStream(id);
+  }
+
+  private async assertCanEditStreams(
+    id: string,
+    user: { id: string; role: Role },
+  ) {
+    const tournament = await this.prisma.tournament.findUnique({
+      where: { id },
+      select: { organizerId: true },
+    });
+    if (!tournament) {
+      throw new NotFoundException('Tournament not found');
+    }
+    if (tournament.organizerId !== user.id && user.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'You do not have permission to edit this tournament stream',
+      );
+    }
+  }
+
+  private async assertMatchInTournament(id: string, matchId?: string | null) {
+    if (!matchId) return;
+    const match = await this.prisma.match.findFirst({
+      where: { id: matchId, tournamentId: id },
+      select: { id: true },
+    });
+    if (!match) {
+      throw new BadRequestException('matchId must belong to this tournament');
+    }
+  }
+
+  private async findStreamOrThrow(id: string, streamId: string) {
+    const stream = await this.prisma.tournamentStream.findFirst({
+      where: { id: streamId, tournamentId: id },
+    });
+    if (!stream) {
+      throw new NotFoundException('Stream not found');
+    }
+    return stream;
+  }
+
+  // Keeps streamUrl/streamIsLive/featuredMatchId pointing at the first live
+  // stream (or the first one) so cards and older clients stay correct.
+  private async syncPrimaryStream(id: string) {
+    const streams = await this.prisma.tournamentStream.findMany({
+      where: { tournamentId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    const primary = streams.find((s) => s.isLive) ?? streams[0] ?? null;
+    await this.prisma.tournament.update({
+      where: { id },
+      data: {
+        streamUrl: primary?.url ?? null,
+        streamIsLive: streams.some((s) => s.isLive),
+        featuredMatchId: primary?.matchId ?? null,
+      },
+    });
+    return streams;
   }
 
   // START TOURNAMENT — Organizer or Admin starts an approved upcoming tournament

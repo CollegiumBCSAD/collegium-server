@@ -517,12 +517,12 @@ model Tournament {
   locked_at               DateTime?
   rating_period_closed_at DateTime?
   createdAt               DateTime                @default(now())
-  // One official broadcast per tournament (= one per esport for olympics-style events).
-  // Not per-match — organizers share this URL across all matches and optionally mark
-  // which match is currently featured on that stream.
+  // Legacy single-stream fields, kept in sync with the primary entry of
+  // `streams` (first live one, else first) so older readers keep working.
   streamUrl               String?
   streamIsLive            Boolean                 @default(false)
   featuredMatchId         String?
+  streams                 TournamentStream[]
   championUniversityId    String?
   champion                University?             @relation("TournamentChampion", fields: [championUniversityId], references: [id])
   matches                 Match[]
@@ -531,6 +531,21 @@ model Tournament {
   ratingHistories         RatingHistory[]
   chatMessages            TournamentChatMessage[]
   rosterChanges           RosterChangeRequest[]
+}
+
+// One broadcast for a tournament. A tournament can run several at once (e.g.
+// parallel matches); each may point at the match it is currently showing.
+model TournamentStream {
+  id           String     @id @default(uuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  url          String
+  label        String?
+  matchId      String?
+  isLive       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@index([tournamentId])
 }
 
 model RatingHistory {
@@ -711,6 +726,14 @@ enum EventStatus {
   COMPLETED
 }
 
+// Admin sign-off for an invite-only event, separate from its lifecycle
+// status: an event can't open signups until an admin approves it.
+enum EventApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum EventTeamStatus {
   PENDING
   APPROVED
@@ -729,6 +752,8 @@ model Event {
   bracketFormat  BracketFormat @default(SINGLE_ELIM)
   inviteCode     String        @unique
   status         EventStatus   @default(DRAFT)
+  approvalStatus  EventApprovalStatus @default(PENDING)
+  rejectionReason String?
   organizerId    String
   organizer      User          @relation("EventOrganizer", fields: [organizerId], references: [id])
   signupsCloseAt DateTime?

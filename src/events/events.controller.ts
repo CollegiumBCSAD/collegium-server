@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   Res,
   StreamableFile,
@@ -20,10 +21,14 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { GameTitle, Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
-import { CreateEventDto, UpdateEventDto } from './dto/event.dto';
+import {
+  CreateEventDto,
+  ReviewEventDto,
+  UpdateEventDto,
+} from './dto/event.dto';
 import {
   ReviewEventTeamDto,
   SubmitEventTeamDto,
@@ -68,6 +73,30 @@ export class EventsController {
   @ApiOperation({ summary: 'List events the caller organizes' })
   findAll(@Request() req: AuthenticatedRequest) {
     return this.eventsService.findAllForUser(req.user);
+  }
+
+  @Public()
+  @Get('public')
+  @ApiOperation({
+    summary: 'Approved intra events anyone can browse and spectate',
+  })
+  findPublic(@Query('gameTitle') gameTitle?: string) {
+    const title = Object.values(GameTitle).find((g) => g === gameTitle);
+    return this.eventsService.findPublicEvents(title);
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('pending-approval')
+  @ApiOperation({ summary: 'Invite-only events awaiting admin approval' })
+  findPendingApproval() {
+    return this.eventsService.findPendingApproval();
+  }
+
+  @Roles(Role.ADMIN)
+  @Patch(':id/review')
+  @ApiOperation({ summary: 'Approve or reject an invite-only event (Admin)' })
+  review(@Param('id') id: string, @Body() dto: ReviewEventDto) {
+    return this.eventsService.reviewEvent(id, dto);
   }
 
   // Declared before ':id' so the literal path wins.
@@ -193,7 +222,7 @@ export class EventsController {
   @Get(':id/bracket')
   @ApiOperation({ summary: 'Read the public bracket for an event' })
   getBracket(@Param('id') id: string) {
-    return this.eventBracketService.getBracket(id);
+    return this.eventBracketService.getPublicBracket(id);
   }
 
   @Roles(Role.ADMIN, Role.ORGANIZER)
