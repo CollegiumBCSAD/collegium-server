@@ -28,10 +28,13 @@ export class OcrService {
       filename || 'screenshot',
     );
 
+    const apiKey = this.configService.get<string>('OCR_API_KEY');
+
     let response: Response;
     try {
       response = await fetch(`${baseUrl.replace(/\/$/, '')}/ocr/scan`, {
         method: 'POST',
+        headers: apiKey ? { 'X-API-Key': apiKey } : undefined,
         body: form,
       });
     } catch {

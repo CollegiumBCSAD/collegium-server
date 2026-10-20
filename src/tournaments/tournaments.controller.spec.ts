@@ -18,7 +18,6 @@ describe('TournamentsController', () => {
           provide: TournamentsService,
           useValue: {
             create: jest.fn(),
-            registerUniversity: jest.fn(),
             generateBracket: jest.fn(),
             getBracket: jest.fn(),
             closeMatch: jest.fn(),

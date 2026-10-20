@@ -26,6 +26,7 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import type * as express from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -58,18 +59,25 @@ const IMAGE_UPLOAD_OPTIONS = {
 const ACCESS_TOKEN_COOKIE = 'access_token';
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
+// Frontend (Vercel) and backend (Render) are deployed on different
+// registrable domains, so the auth cookies must be SameSite=None in
+// production for the browser to send them on cross-site API calls —
+// None requires Secure, which is already gated to production.
+const CROSS_SITE_COOKIES = process.env.NODE_ENV === 'production';
+const SAME_SITE: 'none' | 'lax' = CROSS_SITE_COOKIES ? 'none' : 'lax';
+
 const ACCESS_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  secure: CROSS_SITE_COOKIES,
+  sameSite: SAME_SITE,
   maxAge: 15 * 60 * 1000,
   path: '/',
 };
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  secure: CROSS_SITE_COOKIES,
+  sameSite: SAME_SITE,
   maxAge: 7 * 24 * 60 * 60 * 1000,
   path: '/',
 };
@@ -83,6 +91,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   @ApiOperation({ summary: 'Register a new account (must be .edu.ph)' })
   async register(@Body() dto: RegisterDto) {
@@ -112,6 +121,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('resend-verification')
   @ApiOperation({ summary: 'Resend the email verification link' })
@@ -120,6 +130,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
   @ApiOperation({ summary: 'Login with email and password' })
@@ -163,7 +174,12 @@ export class AuthController {
       result.refresh_token,
       REFRESH_COOKIE_OPTIONS,
     );
-    res.redirect(`${frontendUrl}/auth/callback`);
+    // The frontend's /auth/callback page reads this to establish the
+    // session immediately via Authorization header, rather than depending
+    // on the cookies above surviving a cross-site OAuth redirect bounce.
+    res.redirect(
+      `${frontendUrl}/auth/callback?token=${encodeURIComponent(result.access_token)}`,
+    );
   }
 
   @Public()

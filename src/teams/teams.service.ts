@@ -77,9 +77,12 @@ export class TeamsService {
     return team;
   }
 
-  async createTeam(dto: CreateTeamDto) {
+  async createTeam(
+    captain: { id: string; universityId: string },
+    dto: CreateTeamDto,
+  ) {
     const university = await this.prisma.university.findUnique({
-      where: { id: dto.universityId },
+      where: { id: captain.universityId },
     });
 
     if (university && university.name.toLowerCase().includes('unregistered')) {
@@ -90,7 +93,7 @@ export class TeamsService {
 
     const existingMembership = await this.prisma.teamMember.findFirst({
       where: {
-        userId: dto.captainId,
+        userId: captain.id,
         status: TeamMemberStatus.ACCEPTED,
       },
       include: { team: true },
@@ -105,7 +108,7 @@ export class TeamsService {
     const existing = await this.prisma.team.findFirst({
       where: {
         name: { equals: dto.name, mode: 'insensitive' },
-        universityId: dto.universityId,
+        universityId: captain.universityId,
         gameTitle: dto.gameTitle,
       },
     });
@@ -124,14 +127,14 @@ export class TeamsService {
       data: {
         name: dto.name,
         gameTitle: dto.gameTitle,
-        universityId: dto.universityId,
-        captainId: dto.captainId,
+        universityId: captain.universityId,
+        captainId: captain.id,
         inviteCode,
         min_roster_size,
         max_roster_size,
         members: {
           create: {
-            userId: dto.captainId,
+            userId: captain.id,
             gameHandle: dto.gameHandle.trim(),
             preferredRole: dto.preferredRole,
             status: TeamMemberStatus.ACCEPTED,
@@ -156,7 +159,7 @@ export class TeamsService {
 
     // Automatically promote creator/captain to ATHLETE role if not ADMIN
     await this.prisma.user.updateMany({
-      where: { id: dto.captainId, role: Role.NON_ATHLETE },
+      where: { id: captain.id, role: Role.NON_ATHLETE },
       data: { role: Role.ATHLETE },
     });
 
@@ -164,13 +167,13 @@ export class TeamsService {
     await this.prisma.userGameHandle.upsert({
       where: {
         userId_gameTitle: {
-          userId: dto.captainId,
+          userId: captain.id,
           gameTitle: dto.gameTitle,
         },
       },
       update: { handle: dto.gameHandle.trim() },
       create: {
-        userId: dto.captainId,
+        userId: captain.id,
         gameTitle: dto.gameTitle,
         handle: dto.gameHandle.trim(),
       },
@@ -206,9 +209,9 @@ export class TeamsService {
     return team;
   }
 
-  async joinTeam(teamId: string, dto: JoinTeamDto) {
+  async joinTeam(teamId: string, userId: string, dto: JoinTeamDto) {
     const user = await this.prisma.user.findUnique({
-      where: { id: dto.userId },
+      where: { id: userId },
       include: { university: true },
     });
 
@@ -230,14 +233,14 @@ export class TeamsService {
       throw new NotFoundException('Team not found.');
     }
 
-    if (team.coachId === dto.userId) {
+    if (team.coachId === userId) {
       throw new BadRequestException(
         'You coach this team, so you cannot also hold a player slot on its roster.',
       );
     }
 
     const existingMember = await this.prisma.teamMember.findFirst({
-      where: { teamId, userId: dto.userId },
+      where: { teamId, userId: userId },
     });
 
     if (existingMember) {
@@ -248,7 +251,7 @@ export class TeamsService {
 
     const existingMembership = await this.prisma.teamMember.findFirst({
       where: {
-        userId: dto.userId,
+        userId: userId,
         status: TeamMemberStatus.ACCEPTED,
       },
       include: { team: true },
@@ -268,7 +271,7 @@ export class TeamsService {
     const member = await this.prisma.teamMember.create({
       data: {
         teamId,
-        userId: dto.userId,
+        userId: userId,
         gameHandle: dto.gameHandle.trim(),
         preferredRole: dto.preferredRole,
         status: memberStatus,
@@ -287,23 +290,23 @@ export class TeamsService {
     if (memberStatus === TeamMemberStatus.ACCEPTED) {
       // Instant join via invite code promotes to ATHLETE
       await this.prisma.user.updateMany({
-        where: { id: dto.userId, role: Role.NON_ATHLETE },
+        where: { id: userId, role: Role.NON_ATHLETE },
         data: { role: Role.ATHLETE },
       });
-      await this.claimCaptaincyIfVacant(teamId, dto.userId);
+      await this.claimCaptaincyIfVacant(teamId, userId);
     }
 
     // Also sync the athlete's typed handle to their default profile IGN
     await this.prisma.userGameHandle.upsert({
       where: {
         userId_gameTitle: {
-          userId: dto.userId,
+          userId: userId,
           gameTitle: team.gameTitle,
         },
       },
       update: { handle: dto.gameHandle.trim() },
       create: {
-        userId: dto.userId,
+        userId: userId,
         gameTitle: team.gameTitle,
         handle: dto.gameHandle.trim(),
       },

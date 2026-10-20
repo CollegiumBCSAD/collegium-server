@@ -12,6 +12,7 @@ import {
   MatchMode,
   Prisma,
   TeamMemberStatus,
+  TournamentApplicationStatus,
 } from '@prisma/client';
 
 @Injectable()
@@ -27,10 +28,19 @@ export class UniversitiesService {
 
     const [teams, matches] = await Promise.all([
       this.prisma.team.findMany({
-        where: { gameTitle },
+        where: {
+          gameTitle,
+          tournamentApplications: {
+            some: { status: TournamentApplicationStatus.APPROVED },
+          },
+        },
         orderBy: { glicko2_rating: 'desc' },
         include: {
           university: true,
+          tournamentApplications: {
+            where: { status: TournamentApplicationStatus.APPROVED },
+            select: { tournamentId: true },
+          },
         },
       }),
       this.prisma.match.findMany({
@@ -46,21 +56,23 @@ export class UniversitiesService {
     ]);
 
     return teams.map((team) => {
+      const approvedTournamentIds = new Set(
+        team.tournamentApplications.map((a) => a.tournamentId),
+      );
       const teamMatches = matches.filter(
         (m) =>
-          m.winnerId === team.universityId ||
-          m.loserId === team.universityId ||
-          m.winnerId === team.id ||
-          m.loserId === team.id,
+          m.tournamentId !== null &&
+          approvedTournamentIds.has(m.tournamentId) &&
+          (m.winnerId === team.universityId || m.loserId === team.universityId),
       );
 
       let wins = 0;
       let losses = 0;
 
       for (const m of teamMatches) {
-        if (m.winnerId === team.universityId || m.winnerId === team.id) {
+        if (m.winnerId === team.universityId) {
           wins++;
-        } else if (m.loserId === team.universityId || m.loserId === team.id) {
+        } else if (m.loserId === team.universityId) {
           losses++;
         }
       }
@@ -71,13 +83,10 @@ export class UniversitiesService {
 
       let streak = '-';
       if (teamMatches.length > 0) {
-        const firstMatchWon =
-          teamMatches[0].winnerId === team.universityId ||
-          teamMatches[0].winnerId === team.id;
+        const firstMatchWon = teamMatches[0].winnerId === team.universityId;
         let count = 0;
         for (const m of teamMatches) {
-          const won =
-            m.winnerId === team.universityId || m.winnerId === team.id;
+          const won = m.winnerId === team.universityId;
           if (won === firstMatchWon) {
             count++;
           } else {

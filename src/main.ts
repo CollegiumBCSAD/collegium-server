@@ -6,9 +6,18 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { ConfigService } from '@nestjs/config';
 import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import type { Express } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Render (and most PaaS) terminate TLS at a reverse proxy — without this,
+  // every request appears to come from that proxy's IP, which breaks
+  // per-IP rate limiting and secure-cookie detection.
+  (app.getHttpAdapter().getInstance() as Express).set('trust proxy', 1);
+
+  app.use(helmet({ contentSecurityPolicy: false }));
 
   const configService = app.get(ConfigService);
   const frontendUrl =
@@ -36,19 +45,20 @@ async function bootstrap() {
 
   const disableAuth = process.env.DISABLE_AUTH === 'true';
 
-  const configBuilder = new DocumentBuilder()
-    .setTitle('API Documentation')
-    .setDescription('API documentation for Collegium')
-    .setVersion('1.0');
+  // Swagger exposes the full route/schema surface — keep it dev/staging only.
+  if (process.env.NODE_ENV !== 'production') {
+    const configBuilder = new DocumentBuilder()
+      .setTitle('API Documentation')
+      .setDescription('API documentation for Collegium')
+      .setVersion('1.0');
 
-  if (!disableAuth) configBuilder.addBearerAuth();
+    if (!disableAuth) configBuilder.addBearerAuth();
 
-  const config = configBuilder.build();
+    const document = SwaggerModule.createDocument(app, configBuilder.build());
+    SwaggerModule.setup('api-docs', app, document);
+  }
 
   const port = configService.get<number>('PORT') ?? 5000;
-
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api-docs', app, document);
 
   await app.listen(port);
 }

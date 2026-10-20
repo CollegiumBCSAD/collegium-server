@@ -220,6 +220,18 @@ async function main() {
     },
   });
 
+  await prisma.tournamentApplication.createMany({
+    data: UNIVERSITIES.map((uni) => ({
+      tournamentId: completed.id,
+      universityId: universityByShort.get(uni.short)!,
+      userId: captainByShort.get(uni.short)!,
+      applicantName: `${uni.short} Team Captain`,
+      teamId: teamByShortGame.get(`${uni.short}:${GameTitle.VALORANT}`)!,
+      teamName: `${uni.short} Valorant`,
+      status: TournamentApplicationStatus.APPROVED,
+    })),
+  });
+
   for (const [i, game] of COMPLETED_BRACKET.entries()) {
     const match = await prisma.match.create({
       data: {

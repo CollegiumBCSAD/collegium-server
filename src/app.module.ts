@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -15,22 +17,13 @@ import { NewsModule } from './news/news.module';
 import { EventsModule } from './events/events.module';
 import { CoachModule } from './coach/coach.module';
 import { RostersModule } from './rosters/rosters.module';
-import { CacheModule } from '@nestjs/cache-manager';
-import KeyvRedis from '@keyv/redis';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    CacheModule.registerAsync({
-      isGlobal: true,
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        stores: [new KeyvRedis(configService.get<string>('REDIS_URL'))],
-      }),
-      inject: [ConfigService],
-    }),
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     AuthModule,
     UniversitiesModule,
@@ -47,6 +40,6 @@ import KeyvRedis from '@keyv/redis';
     RostersModule,
   ],
   controllers: [AppController],
-  providers: [],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
