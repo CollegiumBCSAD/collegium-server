@@ -1151,6 +1151,7 @@ export class TournamentsService {
       where: { id: tournamentId },
       data: { status: TournamentStatus.ONGOING },
     });
+    await this.tryAdvanceBracket(tournamentId);
 
     return this.getBracket(tournamentId);
   }
@@ -1204,16 +1205,12 @@ export class TournamentsService {
     }
 
     // A bye is created already-verified and has no opponent, so it is not a
-    // reported result and must not lock the draw. Anything filled in past
-    // round 1 means round 1 has already resolved.
+    // reported result and must not lock the draw.
     const hasReportedResult = tournament.matches.some(
       (m) => m.isVerified && m.loserId !== null,
     );
-    const hasAdvanced = tournament.matches.some(
-      (m) => m.round > 1 && m.winnerId !== null,
-    );
 
-    if (hasReportedResult || hasAdvanced) {
+    if (hasReportedResult) {
       throw new BadRequestException(
         'The bracket can no longer be randomized - a round 1 result has already been reported',
       );
@@ -1225,6 +1222,7 @@ export class TournamentsService {
     await this.prisma.match.deleteMany({ where: { tournamentId } });
 
     await this.seedBracketMatches(tournament, tournament.universities, true);
+    await this.tryAdvanceBracket(tournamentId);
 
     return this.getBracket(tournamentId);
   }
@@ -1284,6 +1282,7 @@ export class TournamentsService {
         matches: {
           include: {
             playerStats: true,
+            games: { select: { winnerId: true } },
           },
           // slot is the authoritative left-to-right position inside a
           // round; playedAt only breaks ties for pre-slot legacy matches.
@@ -1785,14 +1784,13 @@ export class TournamentsService {
     // match is verified it seeds the playoff tree - but only once, or a later
     // close would re-seed playoffs that are already under way.
 
-    // Walk the tree from the bottom up and act on the first unresolved round.
     for (const round of rounds.filter((r) => r > 0)) {
       const current = matches.filter((m) => m.round === round).sort(bySlot);
-      if (!current.every((m) => m.isVerified)) return;
-
       const next = matches.filter((m) => m.round === round + 1).sort(bySlot);
 
       if (next.length === 0) {
+        if (!current.every((m) => m.isVerified)) return;
+
         const winners = current
           .map((m) => m.winnerId)
           .filter((id): id is string => !!id);
@@ -1821,24 +1819,23 @@ export class TournamentsService {
         return;
       }
 
-      // The next round already exists as placeholders: fill it positionally,
-      // slots 2i and 2i+1 of this round deciding slot i of the next. An
-      // already-filled round means this one is old news - keep walking down.
-      const pending = next.filter((m) => !m.winnerId && !m.loserId);
-      if (pending.length === 0) continue;
-
-      for (const target of pending) {
+      for (const target of next) {
+        if (target.isVerified) continue;
         const slot = target.slot ?? next.indexOf(target);
         const a = current[slot * 2];
         const b = current[slot * 2 + 1];
-        if (!a?.winnerId || !b?.winnerId) continue;
+        const data: { winnerId?: string; loserId?: string } = {};
+        if (!target.winnerId && a?.isVerified && a.winnerId) {
+          data.winnerId = a.winnerId;
+        }
+        if (!target.loserId && b?.isVerified && b.winnerId) {
+          data.loserId = b.winnerId;
+        }
+        if (!data.winnerId && !data.loserId) continue;
 
-        await this.prisma.match.update({
-          where: { id: target.id },
-          data: { winnerId: a.winnerId, loserId: b.winnerId },
-        });
+        await this.prisma.match.update({ where: { id: target.id }, data });
+        Object.assign(target, data);
       }
-      return;
     }
   }
 
@@ -2050,6 +2047,12 @@ export class TournamentsService {
       (id): id is string => !!id,
     );
 
+    if (contestants.length < 2) {
+      throw new BadRequestException(
+        'This match is still waiting for its opponent to be decided',
+      );
+    }
+
     const games = dto.games ?? [];
     const matchPlayers = dto.players ?? [];
 
@@ -2195,6 +2198,12 @@ export class TournamentsService {
     const contestants = [match.winnerId, match.loserId].filter(
       (id): id is string => !!id,
     );
+
+    if (contestants.length < 2) {
+      throw new BadRequestException(
+        'This match is still waiting for its opponent to be decided',
+      );
+    }
 
     if (!contestants.includes(forfeitingUniversityId)) {
       throw new BadRequestException(
