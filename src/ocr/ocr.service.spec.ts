@@ -103,7 +103,7 @@ describe('OcrService', () => {
         ok: false,
         status: 429,
         headers: new Headers({ 'retry-after': '1' }),
-      } as unknown as Response)
+      })
       .mockResolvedValueOnce(ocrReply({ players: [] }));
 
     const pending = service.recognize(
