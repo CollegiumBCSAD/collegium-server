@@ -94,4 +94,29 @@ describe('OcrService', () => {
       service.recognize(Buffer.from('img'), 'image/jpeg', 'a.jpg', 'CODM'),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
   });
+
+  it('retries on 429 and then succeeds', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'retry-after': '1' }),
+      } as unknown as Response)
+      .mockResolvedValueOnce(ocrReply({ players: [] }));
+
+    const pending = service.recognize(
+      Buffer.from('img'),
+      'image/jpeg',
+      'shot.jpg',
+      'MLBB',
+    );
+    await jest.advanceTimersByTimeAsync(1000);
+    const result = await pending;
+
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(result.players).toEqual([]);
+    jest.useRealTimers();
+  });
 });
