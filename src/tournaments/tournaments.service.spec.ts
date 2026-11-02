@@ -981,7 +981,15 @@ describe('TournamentsService', () => {
         winnerId: string | null,
         loserId: string | null,
         isVerified: boolean,
-      ) => ({ id, round, slot, bracketSide: null, winnerId, loserId, isVerified });
+      ) => ({
+        id,
+        round,
+        slot,
+        bracketSide: null,
+        winnerId,
+        loserId,
+        isVerified,
+      });
       mockPrismaService.match.findMany.mockResolvedValue([
         row('r1-0', 1, 0, 'uni-a', null, true),
         row('r1-1', 1, 1, 'uni-b', 'uni-c', true),
@@ -1006,7 +1014,9 @@ describe('TournamentsService', () => {
         where: { id: 'r2-1' },
         data: { winnerId: 'uni-d' },
       });
-      expect(mockRankingService.closeTournamentRatingPeriod).not.toHaveBeenCalled();
+      expect(
+        mockRankingService.closeTournamentRatingPeriod,
+      ).not.toHaveBeenCalled();
     });
 
     it('refuses to close a match whose opponent has not been decided yet', async () => {
