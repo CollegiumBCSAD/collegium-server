@@ -3,11 +3,44 @@ import { ConfigService } from '@nestjs/config';
 import { GameTitle } from '@prisma/client';
 import { ScannedPlayer, ScanResult } from './ocr.types';
 
+const MAX_RETRIES = 3;
+
 @Injectable()
 export class OcrService {
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly configService: ConfigService) {}
 
-  async recognize(
+  recognize(
+    image: Buffer,
+    mimeType: string,
+    filename: string,
+    game: GameTitle,
+  ): Promise<ScanResult> {
+    const run = this.queue.then(() =>
+      this.scan(image, mimeType, filename, game),
+    );
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async fetchWithRetry(
+    url: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      const response = await fetch(url, init);
+      if (response.status !== 429 || attempt >= MAX_RETRIES) return response;
+      const retryAfter = Number(response.headers?.get('retry-after'));
+      const delay =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 10_000)
+          : 1000 * 2 ** attempt;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  private async scan(
     image: Buffer,
     mimeType: string,
     filename: string,
@@ -32,11 +65,14 @@ export class OcrService {
 
     let response: Response;
     try {
-      response = await fetch(`${baseUrl.replace(/\/$/, '')}/ocr/scan`, {
-        method: 'POST',
-        headers: apiKey ? { 'X-API-Key': apiKey } : undefined,
-        body: form,
-      });
+      response = await this.fetchWithRetry(
+        `${baseUrl.replace(/\/$/, '')}/ocr/scan`,
+        {
+          method: 'POST',
+          headers: apiKey ? { 'X-API-Key': apiKey } : undefined,
+          body: form,
+        },
+      );
     } catch {
       throw new InternalServerErrorException('Failed to reach the OCR service');
     }

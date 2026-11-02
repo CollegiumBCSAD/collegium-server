@@ -152,8 +152,9 @@ enum TeamAuditAction {
 model University {
   id                     String                  @id @default(uuid())
   name                   String
-  domain                 String                  @unique
+  domain                 String?                 @unique
   created_at             DateTime                @default(now())
+  allowedEmails          UniversityEmail[]
   users                  User[]
   teams                  Team[]
   tournaments            Tournament[]
@@ -164,6 +165,15 @@ model University {
   playerStats            PlayerStat[]
   tournamentApplications TournamentApplication[]
   championedTournaments  Tournament[]            @relation("TournamentChampion")
+}
+
+model UniversityEmail {
+  email        String     @id
+  universityId String
+  university   University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+  created_at   DateTime   @default(now())
+
+  @@index([universityId])
 }
 
 model User {
