@@ -233,10 +233,12 @@ describe('AuthService', () => {
 
       await service.register(gmailDto);
 
+      const universityIdMatcher: unknown = expect.objectContaining({
+        universityId: mockUniversity.id,
+      });
+
       expect(mockPrismaService.user.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ universityId: mockUniversity.id }),
-        }),
+        expect.objectContaining({ data: universityIdMatcher }),
       );
       expect(mockPrismaService.university.create).not.toHaveBeenCalled();
     });
