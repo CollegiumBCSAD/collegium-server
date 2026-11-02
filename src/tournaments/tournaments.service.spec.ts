@@ -961,6 +961,68 @@ describe('TournamentsService', () => {
       });
     });
 
+    it('moves each winner up as soon as its own match closes, without waiting for the rest of the round', async () => {
+      mockPrismaService.match.findFirst.mockResolvedValue({
+        id: 'r1-1',
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-b',
+        loserId: 'uni-c',
+      });
+      mockPrismaService.match.update.mockResolvedValue({});
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        status: TournamentStatus.ONGOING,
+        bracketFormat: null,
+      });
+      const row = (
+        id: string,
+        round: number,
+        slot: number,
+        winnerId: string | null,
+        loserId: string | null,
+        isVerified: boolean,
+      ) => ({ id, round, slot, bracketSide: null, winnerId, loserId, isVerified });
+      mockPrismaService.match.findMany.mockResolvedValue([
+        row('r1-0', 1, 0, 'uni-a', null, true),
+        row('r1-1', 1, 1, 'uni-b', 'uni-c', true),
+        row('r1-2', 1, 2, 'uni-d', 'uni-e', true),
+        row('r1-3', 1, 3, 'uni-f', 'uni-g', false),
+        row('r2-0', 2, 0, null, null, false),
+        row('r2-1', 2, 1, null, null, false),
+        row('r3-0', 3, 0, null, null, false),
+      ]);
+
+      await service.closeMatch(tournamentId, 'r1-1', {
+        ...closeDto,
+        winnerId: 'uni-b',
+        players: [{ ...closeDto.players[0], universityId: 'uni-b' }],
+      });
+
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: 'r2-0' },
+        data: { winnerId: 'uni-a', loserId: 'uni-b' },
+      });
+      expect(mockPrismaService.match.update).toHaveBeenCalledWith({
+        where: { id: 'r2-1' },
+        data: { winnerId: 'uni-d' },
+      });
+      expect(mockRankingService.closeTournamentRatingPeriod).not.toHaveBeenCalled();
+    });
+
+    it('refuses to close a match whose opponent has not been decided yet', async () => {
+      mockPrismaService.match.findFirst.mockResolvedValue({
+        id: 'r2-1',
+        tournamentId,
+        isVerified: false,
+        winnerId: 'uni-a',
+        loserId: null,
+      });
+
+      await expect(
+        service.closeMatch(tournamentId, 'r2-1', closeDto),
+      ).rejects.toThrow('waiting for its opponent');
+    });
+
     it('marks the tournament COMPLETED once the final round produces a single winner', async () => {
       const mockMatch = {
         id: matchId,
