@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { UpdateUniversityDto } from './dto/update-university.dto';
+import { AllowedEmailsDto } from './dto/allowed-emails.dto';
 import {
   BracketSide,
   GameTitle,
@@ -511,23 +512,19 @@ export class UniversitiesService {
   async create(createUniversityDto: CreateUniversityDto) {
     const { name, domain } = createUniversityDto;
 
-    // Check if a university with the same name already exists
-    const existingUniversity = await this.prisma.university.findUnique({
-      where: { domain },
-    });
-
-    if (existingUniversity) {
-      throw new ConflictException(
-        'A university with this name already exists.',
-      );
+    if (domain) {
+      const existingUniversity = await this.prisma.university.findUnique({
+        where: { domain },
+      });
+      if (existingUniversity) {
+        throw new ConflictException(
+          'A university with this domain already exists.',
+        );
+      }
     }
 
-    // Create the new university
     return this.prisma.university.create({
-      data: {
-        name,
-        domain,
-      },
+      data: { name, domain: domain || null },
     });
   }
 
@@ -576,5 +573,43 @@ export class UniversitiesService {
         'This university has registered users, teams, or matches and cannot be removed.',
       );
     }
+  }
+
+  async findAllowedEmails(id: string) {
+    await this.ensureExists(id);
+    return this.prisma.universityEmail.findMany({
+      where: { universityId: id },
+      orderBy: { email: 'asc' },
+    });
+  }
+
+  async addAllowedEmails(id: string, dto: AllowedEmailsDto) {
+    await this.ensureExists(id);
+    const emails = [...new Set(dto.emails.map((e) => e.toLowerCase().trim()))];
+    await this.prisma.$transaction(
+      emails.map((email) =>
+        this.prisma.universityEmail.upsert({
+          where: { email },
+          create: { email, universityId: id },
+          update: { universityId: id },
+        }),
+      ),
+    );
+    return this.findAllowedEmails(id);
+  }
+
+  async removeAllowedEmail(id: string, email: string) {
+    await this.prisma.universityEmail.deleteMany({
+      where: { universityId: id, email: email.toLowerCase().trim() },
+    });
+    return this.findAllowedEmails(id);
+  }
+
+  private async ensureExists(id: string) {
+    const university = await this.prisma.university.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!university) throw new NotFoundException('University not found.');
   }
 }

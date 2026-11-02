@@ -12,6 +12,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { UniversitiesService } from './universities.service';
 import { CreateUniversityDto } from './dto/create-university.dto';
 import { UpdateUniversityDto } from './dto/update-university.dto';
+import { AllowedEmailsDto } from './dto/allowed-emails.dto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Role, GameTitle } from '@prisma/client';
@@ -93,5 +94,33 @@ export class UniversitiesController {
   @ApiOperation({ summary: 'Remove a university (Admin only)' })
   remove(@Param('id') id: string) {
     return this.universitiesService.remove(id);
+  }
+
+  @Get(':id/emails')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary:
+      'List personal emails allowed to sign up under a university (Admin only)',
+  })
+  findAllowedEmails(@Param('id') id: string) {
+    return this.universitiesService.findAllowedEmails(id);
+  }
+
+  @Post(':id/emails')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'Allow personal emails to sign up under a university (Admin only)',
+  })
+  addAllowedEmails(@Param('id') id: string, @Body() dto: AllowedEmailsDto) {
+    return this.universitiesService.addAllowedEmails(id, dto);
+  }
+
+  @Delete(':id/emails/:email')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: 'Remove an allowed personal email from a university (Admin only)',
+  })
+  removeAllowedEmail(@Param('id') id: string, @Param('email') email: string) {
+    return this.universitiesService.removeAllowedEmail(id, email);
   }
 }
