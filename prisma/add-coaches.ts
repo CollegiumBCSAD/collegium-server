@@ -17,10 +17,12 @@ const SEED_PASSWORD = 'Collegium2026!';
 async function main() {
   const hashedPassword = await bcrypt.hash(SEED_PASSWORD, 10);
   const universities = await prisma.university.findMany({
+    where: { domain: { not: null } },
     orderBy: { name: 'asc' },
   });
 
-  for (const university of universities) {
+  for (const { domain, ...rest } of universities) {
+    const university = { ...rest, domain: domain! };
     const short = university.domain.split('.')[0].toUpperCase();
 
     const coach = await prisma.user.upsert({

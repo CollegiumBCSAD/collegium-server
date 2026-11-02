@@ -40,7 +40,7 @@ async function main() {
   const hashedPassword = await bcrypt.hash(SEED_PASSWORD, 10);
 
   const existingUnis = await prisma.university.findMany();
-  const uniByDomain = new Map(existingUnis.map((u) => [u.domain.toLowerCase(), u]));
+  const uniByDomain = new Map(existingUnis.filter((u) => u.domain).map((u) => [u.domain!.toLowerCase(), u]));
 
   let totalUsersProcessed = 0;
   let totalHandlesCreated = 0;
