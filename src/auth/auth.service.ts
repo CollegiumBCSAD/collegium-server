@@ -34,34 +34,32 @@ export class AuthService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  private async resolveUniversity(domain: string) {
-    let university = await this.prisma.university.findUnique({
-      where: { domain },
+  private async resolveUniversity(email: string) {
+    const allowed = await this.prisma.universityEmail.findUnique({
+      where: { email },
+      include: { university: true },
     });
+    if (allowed) return allowed.university;
 
-    if (!university) {
-      university = await this.prisma.university.create({
-        data: {
-          domain,
-          name: `Unregistered Institution (${domain})`,
-        },
-      });
+    if (!email.endsWith('.edu.ph')) {
+      throw new ForbiddenException(
+        "This email isn't registered with any university yet. Sign up with your school's .edu.ph email or the email you gave your school's organizer, or ask them to add this one.",
+      );
     }
 
-    return university;
+    const domain = email.split('@')[1];
+    return (
+      (await this.prisma.university.findUnique({ where: { domain } })) ??
+      this.prisma.university.create({
+        data: { domain, name: `Unregistered Institution (${domain})` },
+      })
+    );
   }
 
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
 
-    if (!email.endsWith('.edu.ph')) {
-      throw new ForbiddenException(
-        'Registration is restricted to verified Philippine collegiate institutions (.edu.ph)',
-      );
-    }
-
-    const domain = email.split('@')[1];
-    const university = await this.resolveUniversity(domain);
+    const university = await this.resolveUniversity(email);
 
     const existing = await this.prisma.user.findUnique({
       where: { email },
@@ -216,14 +214,7 @@ export class AuthService {
   async googleLogin(googleUser: { email: string; displayName: string }) {
     const email = googleUser.email.toLowerCase().trim();
 
-    if (!email.endsWith('.edu.ph')) {
-      throw new ForbiddenException(
-        'Registration is restricted to verified Philippine collegiate institutions (.edu.ph)',
-      );
-    }
-
-    const domain = email.split('@')[1];
-    const university = await this.resolveUniversity(domain);
+    const university = await this.resolveUniversity(email);
 
     let user = await this.prisma.user.findUnique({ where: { email } });
 

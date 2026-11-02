@@ -30,6 +30,9 @@ const mockCloudinaryService = {
 };
 
 const mockPrismaService = {
+  universityEmail: {
+    findUnique: jest.fn(),
+  },
   university: {
     findUnique: jest.fn(),
     create: jest.fn(),
@@ -208,6 +211,34 @@ describe('AuthService', () => {
       await expect(service.register(invalidDto)).rejects.toThrow(
         ForbiddenException,
       );
+    });
+
+    it('registers an allowlisted personal email under its university', async () => {
+      const gmailDto = { ...dto, email: 'juan@gmail.com' };
+      mockPrismaService.universityEmail.findUnique.mockResolvedValueOnce({
+        email: gmailDto.email,
+        university: mockUniversity,
+      });
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed_password');
+      mockPrismaService.user.create.mockResolvedValue({
+        id: 'user-gmail',
+        email: gmailDto.email,
+        displayName: gmailDto.displayName,
+        role: gmailDto.role,
+        universityId: mockUniversity.id,
+      });
+      mockPrismaService.emailVerificationToken.create.mockResolvedValue({});
+      mockEmailService.sendVerificationEmail.mockResolvedValue(undefined);
+
+      await service.register(gmailDto);
+
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ universityId: mockUniversity.id }),
+        }),
+      );
+      expect(mockPrismaService.university.create).not.toHaveBeenCalled();
     });
 
     it('should auto-create university if domain is not registered yet and register successfully', async () => {
