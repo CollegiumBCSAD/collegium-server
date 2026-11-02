@@ -233,6 +233,12 @@ export class TeamsService {
       throw new NotFoundException('Team not found.');
     }
 
+    if (user && user.universityId !== team.universityId) {
+      throw new ForbiddenException(
+        `${team.name} belongs to ${team.university.name}. You can only join squads from your own university.`,
+      );
+    }
+
     if (team.coachId === userId) {
       throw new BadRequestException(
         'You coach this team, so you cannot also hold a player slot on its roster.',
