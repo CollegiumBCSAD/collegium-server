@@ -1282,6 +1282,7 @@ export class TournamentsService {
         matches: {
           include: {
             playerStats: true,
+            games: { select: { winnerId: true } },
           },
           // slot is the authoritative left-to-right position inside a
           // round; playedAt only breaks ties for pre-slot legacy matches.
