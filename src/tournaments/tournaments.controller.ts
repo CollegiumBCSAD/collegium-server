@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   Post,
   Query,
   Request,
@@ -23,6 +24,7 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { CloseMatchDto } from './dto/close-match.dto';
+import { ManualBracketDto } from './dto/manual-bracket.dto';
 import { CreateTournamentDto } from './dto/create-tournament.dto';
 import { UpdateStreamDto } from './dto/update-stream.dto';
 import {
@@ -334,6 +336,23 @@ export class TournamentsController {
     @Request() req: { user: { id: string; role: Role } },
   ) {
     return this.tournamentsService.randomizeBracket(tournamentId, req.user);
+  }
+
+  @Put(':id/bracket/manual')
+  @Roles(Role.ADMIN, Role.ORGANIZER)
+  @ApiOperation({
+    summary: 'Set the round 1 bracket by hand (null slots are byes)',
+  })
+  setManualBracket(
+    @Param('id') tournamentId: string,
+    @Body() dto: ManualBracketDto,
+    @Request() req: { user: { id: string; role: Role } },
+  ) {
+    return this.tournamentsService.setManualBracket(
+      tournamentId,
+      req.user,
+      dto.slots,
+    );
   }
 
   // GET /tournaments/:id/bracket — Anyone can view the bracket

@@ -1070,6 +1070,110 @@ describe('TournamentsService', () => {
   });
 
   // getBracket()
+  describe('setManualBracket()', () => {
+    const organizer = { id: 'org-1', role: Role.ORGANIZER };
+    const tournament = (
+      matches: object[] = [
+        { round: 1, isVerified: false, winnerId: 'uni-b', loserId: 'uni-c' },
+      ],
+    ) => ({
+      id: 'tournament-uuid',
+      organizerId: 'org-1',
+      bracketFormat: BracketFormat.SINGLE_ELIM,
+      gameTitle: null,
+      universities: [{ id: 'uni-a' }, { id: 'uni-b' }, { id: 'uni-c' }],
+      matches,
+    });
+
+    it('rebuilds round 1 exactly as laid out, byes included', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(tournament());
+
+      await service.setManualBracket('tournament-uuid', organizer, [
+        'uni-c',
+        null,
+        'uni-a',
+        'uni-b',
+      ]);
+
+      const rows = (
+        mockPrismaService.match.createMany.mock.calls[0] as [
+          {
+            data: {
+              round: number;
+              slot: number;
+              winnerId: string | null;
+              loserId: string | null;
+              isVerified: boolean;
+            }[];
+          },
+        ]
+      )[0].data.filter((r) => r.round === 1);
+      expect(rows).toEqual([
+        expect.objectContaining({
+          slot: 0,
+          winnerId: 'uni-c',
+          loserId: undefined,
+          isVerified: true,
+        }),
+        expect.objectContaining({
+          slot: 1,
+          winnerId: 'uni-a',
+          loserId: 'uni-b',
+          isVerified: false,
+        }),
+      ]);
+      expect(mockPrismaService.match.deleteMany).toHaveBeenCalledWith({
+        where: { tournamentId: 'tournament-uuid' },
+      });
+    });
+
+    it.each([
+      ['a team placed twice', ['uni-a', 'uni-a', 'uni-b', 'uni-c']],
+      ['a team left out', ['uni-a', null, 'uni-b', null]],
+      [
+        'a bye on both sides of a match',
+        [null, null, 'uni-a', 'uni-b', 'uni-c'],
+      ],
+      ['the wrong number of slots', ['uni-a', 'uni-b', 'uni-c']],
+    ])('rejects %s', async (_, slots) => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(tournament());
+
+      await expect(
+        service.setManualBracket('tournament-uuid', organizer, slots),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrismaService.match.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('refuses once a real round 1 result has been reported', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(
+        tournament([
+          { round: 1, isVerified: true, winnerId: 'uni-b', loserId: 'uni-c' },
+        ]),
+      );
+
+      await expect(
+        service.setManualBracket('tournament-uuid', organizer, [
+          'uni-c',
+          null,
+          'uni-a',
+          'uni-b',
+        ]),
+      ).rejects.toThrow('can no longer be edited');
+    });
+
+    it("refuses an organizer who doesn't own the tournament", async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue(tournament());
+
+      await expect(
+        service.setManualBracket(
+          'tournament-uuid',
+          { id: 'someone-else', role: Role.ORGANIZER },
+          ['uni-c', null, 'uni-a', 'uni-b'],
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   describe('getBracket()', () => {
     const tournamentId = 'tournament-uuid';
 
