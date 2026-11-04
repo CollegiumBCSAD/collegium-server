@@ -1164,6 +1164,28 @@ export class TournamentsService {
     tournamentId: string,
     user: { id: string; role: Role },
   ) {
+    const tournament = await this.loadRedrawableBracket(
+      tournamentId,
+      user,
+      'randomize',
+    );
+
+    await this.prisma.playerStat.deleteMany({
+      where: { match: { tournamentId } },
+    });
+    await this.prisma.match.deleteMany({ where: { tournamentId } });
+
+    await this.seedBracketMatches(tournament, tournament.universities, true);
+    await this.tryAdvanceBracket(tournamentId);
+
+    return this.getBracket(tournamentId);
+  }
+
+  private async loadRedrawableBracket(
+    tournamentId: string,
+    user: { id: string; role: Role },
+    action: 'randomize' | 'edit',
+  ) {
     const tournament = await this.prisma.tournament.findUnique({
       where: { id: tournamentId },
       include: {
@@ -1185,13 +1207,13 @@ export class TournamentsService {
 
     if (tournament.organizerId !== user.id && user.role !== Role.ADMIN) {
       throw new ForbiddenException(
-        'You do not have permission to randomize this bracket',
+        `You do not have permission to ${action} this bracket`,
       );
     }
 
     if (tournament.matches.length === 0) {
       throw new BadRequestException(
-        'Generate the bracket before randomizing it',
+        `Generate the bracket before you ${action} it`,
       );
     }
 
@@ -1200,7 +1222,7 @@ export class TournamentsService {
       tournament.bracketFormat === BracketFormat.TWO_STAGE
     ) {
       throw new BadRequestException(
-        'Round robin formats have no random draw - every university plays every other university',
+        'Round robin formats have no draw to change - every university plays every other university',
       );
     }
 
@@ -1212,16 +1234,73 @@ export class TournamentsService {
 
     if (hasReportedResult) {
       throw new BadRequestException(
-        'The bracket can no longer be randomized - a round 1 result has already been reported',
+        `The bracket can no longer be ${action === 'edit' ? 'edited' : 'randomized'} - a round 1 result has already been reported`,
       );
+    }
+
+    return tournament;
+  }
+
+  async setManualBracket(
+    tournamentId: string,
+    user: { id: string; role: Role },
+    slots: (string | null)[],
+  ) {
+    const tournament = await this.loadRedrawableBracket(
+      tournamentId,
+      user,
+      'edit',
+    );
+
+    if (
+      tournament.bracketFormat !== null &&
+      tournament.bracketFormat !== BracketFormat.SINGLE_ELIM
+    ) {
+      throw new BadRequestException(
+        'Manual brackets are only available for Single Elimination',
+      );
+    }
+
+    const registered = new Set(tournament.universities.map((u) => u.id));
+    const size = this.nextPowerOfTwo(registered.size);
+    if (slots.length !== size) {
+      throw new BadRequestException(
+        `A bracket for ${registered.size} universities needs exactly ${size} slots`,
+      );
+    }
+
+    const placed = slots.filter((id): id is string => id !== null);
+    if (
+      placed.length !== registered.size ||
+      new Set(placed).size !== placed.length ||
+      placed.some((id) => !registered.has(id))
+    ) {
+      throw new BadRequestException(
+        'Every registered university must appear in the bracket exactly once',
+      );
+    }
+
+    for (let i = 0; i < slots.length; i += 2) {
+      if (slots[i] === null && slots[i + 1] === null) {
+        throw new BadRequestException(
+          `Match ${i / 2 + 1} has a bye on both sides`,
+        );
+      }
     }
 
     await this.prisma.playerStat.deleteMany({
       where: { match: { tournamentId } },
     });
     await this.prisma.match.deleteMany({ where: { tournamentId } });
-
-    await this.seedBracketMatches(tournament, tournament.universities, true);
+    await this.prisma.match.createMany({
+      data: this.buildEliminationSkeleton(
+        tournamentId,
+        this.seriesContextFor(tournament),
+        slots,
+        null,
+        true,
+      ),
+    });
     await this.tryAdvanceBracket(tournamentId);
 
     return this.getBracket(tournamentId);
@@ -1365,7 +1444,7 @@ export class TournamentsService {
   private buildEliminationSkeleton(
     tournamentId: string,
     series: SeriesContext,
-    seeded: string[],
+    seeded: (string | null)[],
     bracketSide: BracketSide | null,
     // Pass true when `seeded` is already a power of two arranged by
     // orderForStandardPairing. Otherwise the field is padded with byes and
