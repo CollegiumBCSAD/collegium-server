@@ -1161,6 +1161,79 @@ describe('TournamentsService', () => {
       ).rejects.toThrow('can no longer be edited');
     });
 
+    it('builds a Double Elimination winners round 1 in the chosen order', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        ...tournament(),
+        bracketFormat: BracketFormat.DOUBLE_ELIM,
+        universities: [
+          { id: 'uni-a' },
+          { id: 'uni-b' },
+          { id: 'uni-c' },
+          { id: 'uni-d' },
+        ],
+      });
+
+      await service.setManualBracket('tournament-uuid', organizer, [
+        'uni-d',
+        'uni-a',
+        'uni-c',
+        'uni-b',
+      ]);
+
+      const rows = (
+        mockPrismaService.match.createMany.mock.calls[0] as [
+          {
+            data: {
+              round: number;
+              slot: number;
+              bracketSide: string;
+              winnerId: string;
+              loserId: string;
+            }[];
+          },
+        ]
+      )[0].data;
+      expect(rows).toEqual([
+        expect.objectContaining({
+          round: 1,
+          slot: 0,
+          bracketSide: 'WINNERS',
+          winnerId: 'uni-d',
+          loserId: 'uni-a',
+        }),
+        expect.objectContaining({
+          round: 1,
+          slot: 1,
+          bracketSide: 'WINNERS',
+          winnerId: 'uni-c',
+          loserId: 'uni-b',
+        }),
+      ]);
+    });
+
+    it('rejects a bye in a Double Elimination bracket', async () => {
+      mockPrismaService.tournament.findUnique.mockResolvedValue({
+        ...tournament(),
+        bracketFormat: BracketFormat.DOUBLE_ELIM,
+        universities: [
+          { id: 'uni-a' },
+          { id: 'uni-b' },
+          { id: 'uni-c' },
+          { id: 'uni-d' },
+        ],
+      });
+
+      await expect(
+        service.setManualBracket('tournament-uuid', organizer, [
+          'uni-a',
+          null,
+          'uni-b',
+          'uni-c',
+        ]),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrismaService.match.deleteMany).not.toHaveBeenCalled();
+    });
+
     it("refuses an organizer who doesn't own the tournament", async () => {
       mockPrismaService.tournament.findUnique.mockResolvedValue(tournament());
 
