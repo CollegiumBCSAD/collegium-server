@@ -1252,15 +1252,6 @@ export class TournamentsService {
       'edit',
     );
 
-    if (
-      tournament.bracketFormat !== null &&
-      tournament.bracketFormat !== BracketFormat.SINGLE_ELIM
-    ) {
-      throw new BadRequestException(
-        'Manual brackets are only available for Single Elimination',
-      );
-    }
-
     const registered = new Set(tournament.universities.map((u) => u.id));
     const size = this.nextPowerOfTwo(registered.size);
     if (slots.length !== size) {
@@ -1292,15 +1283,27 @@ export class TournamentsService {
       where: { match: { tournamentId } },
     });
     await this.prisma.match.deleteMany({ where: { tournamentId } });
-    await this.prisma.match.createMany({
-      data: this.buildEliminationSkeleton(
+    const series = this.seriesContextFor(tournament);
+    if (tournament.bracketFormat === BracketFormat.DOUBLE_ELIM) {
+      await this.createRound(
         tournamentId,
-        this.seriesContextFor(tournament),
-        slots,
-        null,
-        true,
-      ),
-    });
+        series,
+        placed,
+        1,
+        BracketSide.WINNERS,
+        'EARLY',
+      );
+    } else {
+      await this.prisma.match.createMany({
+        data: this.buildEliminationSkeleton(
+          tournamentId,
+          series,
+          slots,
+          null,
+          true,
+        ),
+      });
+    }
     await this.tryAdvanceBracket(tournamentId);
 
     return this.getBracket(tournamentId);
